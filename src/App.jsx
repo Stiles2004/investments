@@ -56,35 +56,49 @@ const daysSince = d => Math.floor((Date.now()-new Date(d))/86400000);
 
 async function fetchQ(ticker) {
   try {
-    // Primary: use quote endpoint for live change data
-    const quoteUrl = YF_QUOTE + encodeURIComponent(ticker) + "&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,averageDailyVolume3Month,trailingPE,fiftyTwoWeekHigh,fiftyTwoWeekLow";
+    // Try v8 spark endpoint - most reliable for change data
+    const sparkUrl = "https://query1.finance.yahoo.com/v8/finance/spark?symbols=" + encodeURIComponent(ticker) + "&range=1d&interval=5m";
+    const chartUrl = YF_CHART + ticker + "?interval=1d&range=5d&includePrePost=false";
+    const quoteUrl = YF_QUOTE + encodeURIComponent(ticker) + "&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,averageDailyVolume3Month,trailingPE,fiftyTwoWeekHigh,fiftyTwoWeekLow,previousClose";
+
+    // Try quote endpoint first
     const qj = await fetchWithProxy(quoteUrl);
     const q = qj?.quoteResponse?.result?.[0];
-    if (q) {
+    if (q && q.regularMarketPrice) {
+      const changePct = q.regularMarketChangePercent ?? null;
+      const changeAmt = q.regularMarketChange ?? null;
       return {
         price: q.regularMarketPrice,
-        changePct: q.regularMarketChangePercent ?? null,
-        changeAmt: q.regularMarketChange ?? null,
-        hi52: q.fiftyTwoWeekHigh,
-        lo52: q.fiftyTwoWeekLow,
-        vol: q.regularMarketVolume,
-        avgVol: q.averageDailyVolume3Month,
+        changePct: changePct,
+        changeAmt: changeAmt,
+        prev: q.previousClose ?? (changePct != null ? q.regularMarketPrice / (1 + changePct/100) : null),
+        hi52: q.fiftyTwoWeekHigh ?? null,
+        lo52: q.fiftyTwoWeekLow ?? null,
+        vol: q.regularMarketVolume ?? null,
+        avgVol: q.averageDailyVolume3Month ?? null,
         pe: q.trailingPE ?? null,
       };
     }
-    // Fallback: chart endpoint
-    const chartUrl = YF_CHART + ticker + "?interval=1d&range=1y";
+
+    // Fallback: chart endpoint with 5d range to get previous close
     const cj = await fetchWithProxy(chartUrl);
     const m = cj?.chart?.result?.[0]?.meta;
+    const closes = cj?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+    const validCloses = closes.filter(c => c != null);
+    const prevClose = validCloses.length >= 2 ? validCloses[validCloses.length - 2] : null;
+    const currPrice = m?.regularMarketPrice ?? null;
+    const changeAmt = (currPrice != null && prevClose != null) ? currPrice - prevClose : null;
+    const changePct = (changeAmt != null && prevClose) ? (changeAmt / prevClose) * 100 : null;
     if (!m) return null;
     return {
-      price: m.regularMarketPrice,
-      changePct: m.regularMarketChangePercent ?? null,
-      changeAmt: m.regularMarketChange ?? null,
-      hi52: m.fiftyTwoWeekHigh,
-      lo52: m.fiftyTwoWeekLow,
-      vol: m.regularMarketVolume,
-      avgVol: m.averageDailyVolume3Month ?? m.averageDailyVolume10Day,
+      price: currPrice,
+      changePct: changePct,
+      changeAmt: changeAmt,
+      prev: prevClose,
+      hi52: m.fiftyTwoWeekHigh ?? null,
+      lo52: m.fiftyTwoWeekLow ?? null,
+      vol: m.regularMarketVolume ?? null,
+      avgVol: m.averageDailyVolume3Month ?? m.averageDailyVolume10Day ?? null,
       pe: m.trailingPE ?? null,
     };
   } catch { return null; }
@@ -134,8 +148,16 @@ export default function App() {
     const lo = q?.lo52!=null?(h.currency==="USD"?toCAD(q.lo52):q.lo52):null;
     const mv = pC!==null?pC*h.shares:null;
     const cb = h.avgCostCAD*h.shares;
-    const dP = q?.changePct ?? null;
-    const dA = (dP!==null&&mv!==null) ? mv*(dP/100)/(1+(dP/100)) : null;
+    const dP = q?.changePct != null ? q.changePct : null;
+    const dANative = q?.changeAmt != null ? q.changeAmt : null;
+    const dA = (dANative!==null && h.currency==="USD" && pC!==null && pN!==null)
+      ? dANative * (pC/pN) * h.shares
+      : (dANative!==null)
+        ? dANative * h.shares
+        : (dP!==null&&mv!==null)
+          ? mv*(dP/100)/(1+(dP/100))
+          : null;
+    const dAusd = (dANative!==null && h.currency==="USD") ? dANative * h.shares : null;
     const tG = mv!==null?mv-cb:null;
     const tP = tG!==null?(tG/cb)*100:null;
     const rP = (pC&&hi&&lo&&hi!==lo)?Math.max(0,Math.min(100,((pC-lo)/(hi-lo))*100)):null;
@@ -170,25 +192,26 @@ export default function App() {
   const toggleCollapse = a => setCollapsed(c=>({...c,[a]:!c[a]}));
 
   const COLS = [
-    {label:"Security",      align:"left",  cls:""},
-    {label:"Price",         align:"right", cls:""},
-    {label:"Today",         align:"right", cls:""},
-    {label:"Market Value",  align:"right", cls:""},
-    {label:"Weight",        align:"right", cls:"hm"},
-    {label:"52-Week Range", align:"center",cls:"hm"},
-    {label:"Total Return",  align:"right", cls:""},
-    {label:"Ann. Return",   align:"right", cls:"hm2"},
-    {label:"Vol / Avg",     align:"right", cls:"hm2"},
-    {label:"P/E",           align:"right", cls:"hm2"},
+    {label:"Security",      align:"left",  cls:"",   sort:"az"},
+    {label:"Price",         align:"right", cls:"",   sort:null},
+    {label:"Today ▲▼", align:"right", cls:"",   sort:"dGP"},
+    {label:"Market Value",  align:"right", cls:"",   sort:"weight"},
+    {label:"Weight",        align:"right", cls:"hm", sort:"weight"},
+    {label:"52-Week Range", align:"center",cls:"hm", sort:null},
+    {label:"Total Return",  align:"right", cls:"",   sort:"total"},
+    {label:"Ann. Return",   align:"right", cls:"hm2",sort:null},
+    {label:"Vol / Avg",     align:"right", cls:"hm2",sort:null},
+    {label:"P/E",           align:"right", cls:"hm2",sort:null},
   ];
 
   return (
     <div style={{fontFamily:"'Source Sans 3','Source Sans Pro','Helvetica Neue',Arial,sans-serif",background:"#F4F2EE",minHeight:"100vh"}}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Source+Sans+3:wght@300;400;600;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
         * { box-sizing:border-box; margin:0; padding:0; }
-        .serif { font-family:'Playfair Display','Georgia',serif; }
-        .num { font-family:'SF Mono','Fira Code','Courier New',monospace; font-size:0.92em; font-weight:500; }
+        body, * { font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
+        .serif { font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
+        .num { font-family:'Inter','Helvetica Neue',Arial,sans-serif; font-weight:500; }
         .up { color:#1A6B3C; } .dn { color:#B33A3A; } .mu { color:#888; }
         tr.hr:hover td { background:#EEF0F8 !important; }
         button,select { font-family:inherit; cursor:pointer; }
@@ -199,6 +222,8 @@ export default function App() {
         @media(max-width:1100px){ .hm { display:none !important; } }
         @media(max-width:800px){ .hm2 { display:none !important; } }
         .tag { display:inline-block; font-size:10px; font-weight:700; letter-spacing:0.07em; padding:2px 7px; border-radius:3px; }
+        .col-sort:hover { color:#0B2447 !important; cursor:pointer; background:#F0EDE8; }
+        .col-sort.active { color:#0B2447 !important; }
       `}</style>
 
       {/* MASTHEAD */}
@@ -359,8 +384,10 @@ export default function App() {
                       <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
                         <thead>
                           <tr style={{borderBottom:"1px solid #F0EDE8",background:"#FAFAF8"}}>
-                            {COLS.map(({label,align,cls})=>(
-                              <th key={label} className={cls} style={{padding:"9px 16px",textAlign:align,fontSize:10,fontWeight:700,color:"#AAA",letterSpacing:"0.1em",whiteSpace:"nowrap"}}>{label.toUpperCase()}</th>
+                            {COLS.map(({label,align,cls,sort})=>(
+                              <th key={label} className={cls+(sort?" col-sort"+(sortBy===sort?" active":""):"")} 
+                                onClick={sort?()=>setSortBy(sort===sortBy&&sort==="dGP"?"dLP":sort===sortBy&&sort==="dLP"?"dGP":sort):undefined}
+                                style={{padding:"9px 16px",textAlign:align,fontSize:10,fontWeight:700,color:sort&&sortBy===sort?"#0B2447":"#AAA",letterSpacing:"0.1em",whiteSpace:"nowrap",userSelect:"none",transition:"color 0.15s"}}>{label.toUpperCase()}</th>
                             ))}
                           </tr>
                         </thead>
