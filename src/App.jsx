@@ -28,7 +28,24 @@ const HOLDINGS = [
 
 const ACCT_COLOR = { RRSP: "#1B4F8A", LIRA: "#0A8A50", TFSA: "#96780A", RESP: "#6B3FA0" };
 const ACCT_ORDER = ["RRSP", "LIRA", "TFSA", "RESP"];
-const PROXY = "https://corsproxy.io/?url=";
+const PROXIES = [
+  "https://api.allorigins.win/raw?url=",
+  "https://corsproxy.io/?url=",
+  "https://thingproxy.freeboard.io/fetch/",
+];
+
+async function fetchWithProxy(url) {
+  for (const proxy of PROXIES) {
+    try {
+      const r = await fetch(proxy + encodeURIComponent(url), { signal: AbortSignal.timeout(8000) });
+      if (r.ok) {
+        const text = await r.text();
+        if (text && text.length > 100) return JSON.parse(text);
+      }
+    } catch { continue; }
+  }
+  return null;
+}
 const YF = "https://query1.finance.yahoo.com/v8/finance/chart/";
 
 const f = (n, d=2) => n.toLocaleString("en-CA", {minimumFractionDigits:d, maximumFractionDigits:d});
@@ -38,9 +55,8 @@ const daysSince = d => Math.floor((Date.now()-new Date(d))/86400000);
 
 async function fetchQ(ticker) {
   try {
-    const url = PROXY+encodeURIComponent(YF+ticker+"?interval=1d&range=1y");
-    const r = await fetch(url);
-    const j = await r.json();
+    const url = YF+ticker+"?interval=1d&range=1y";
+    const j = await fetchWithProxy(url);
     const m = j?.chart?.result?.[0]?.meta;
     if (!m) return null;
     return {
