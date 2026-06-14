@@ -40,8 +40,8 @@ async function fetchYahoo(url) {
 }
 const YF_QUOTE = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=";
 const YF_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/";
-const RANGE_MAP = { "1W":"5d","1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y" };
-const INTERVAL_MAP = { "1W":"1d","1M":"1d","3M":"1d","6M":"1wk","1Y":"1wk" };
+const RANGE_MAP = { "1W":"5d","1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y","ALL":"max" };
+const INTERVAL_MAP = { "1W":"1d","1M":"1d","3M":"1d","6M":"1wk","1Y":"1wk","ALL":"1mo" };
 const CACHE_KEY_QUOTES = "pf_quotes_v1";
 const CACHE_KEY_FX = "pf_fx_v1";
 const CACHE_KEY_CHARTS = "pf_charts_v1";
@@ -88,6 +88,30 @@ function loadCacheStale(key) {
 
 
 
+async function fetchChartData(ticker) {
+  const url = YF_CHART + ticker + "?interval=1d&range=5d";
+  const j = await fetchYahoo(url);
+  const m = j?.chart?.result?.[0]?.meta;
+  const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+  const valid = closes.filter(c => c != null);
+  const prev = valid.length >= 2 ? valid[valid.length-2] : null;
+  const curr = m?.regularMarketPrice ?? null;
+  const chgAmt = (curr!=null&&prev!=null) ? curr-prev : null;
+  const chgPct = (chgAmt!=null&&prev) ? (chgAmt/prev)*100 : null;
+  if (m && curr) {
+    return {
+      price: curr,
+      changePct: chgPct,
+      changeAmt: chgAmt,
+      hi52: m.fiftyTwoWeekHigh ?? null,
+      lo52: m.fiftyTwoWeekLow ?? null,
+      vol: m.regularMarketVolume ?? null,
+      avgVol: m.averageDailyVolume3Month ?? m.averageDailyVolume10Day ?? null,
+    };
+  }
+  return null;
+}
+
 async function fetchAllQuotes(force=false) {
   if (!force) {
     const cached = loadCache(CACHE_KEY_QUOTES);
@@ -97,26 +121,18 @@ async function fetchAllQuotes(force=false) {
   const results = {};
   await Promise.all(allTickers.map(async ticker => {
     try {
-      const url = YF_CHART + ticker + "?interval=1d&range=5d";
-      const j = await fetchYahoo(url);
-      const m = j?.chart?.result?.[0]?.meta;
-      const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
-      const valid = closes.filter(c => c != null);
-      const prev = valid.length >= 2 ? valid[valid.length-2] : null;
-      const curr = m?.regularMarketPrice ?? null;
-      const chgAmt = (curr!=null&&prev!=null) ? curr-prev : null;
-      const chgPct = (chgAmt!=null&&prev) ? (chgAmt/prev)*100 : null;
-      if (m && curr) {
-        results[ticker] = {
-          price: curr,
-          changePct: chgPct,
-          changeAmt: chgAmt,
-          hi52: m.fiftyTwoWeekHigh ?? null,
-          lo52: m.fiftyTwoWeekLow ?? null,
-          vol: m.regularMarketVolume ?? null,
-          avgVol: m.averageDailyVolume3Month ?? m.averageDailyVolume10Day ?? null,
-        };
+      let data = await fetchChartData(ticker);
+      // If TSX ticker fails, try alternate formats
+      if (!data && ticker.endsWith('.TO')) {
+        const alt = ticker.replace('-', '.').replace('.TO', '') + '.TO';
+        data = await fetchChartData(alt);
       }
+      if (!data && ticker.includes('.TO')) {
+        // Try without exchange suffix
+        const base = ticker.replace('.TO','').replace('-UN','').replace('-C','');
+        data = await fetchChartData(base);
+      }
+      if (data) results[ticker] = data;
     } catch {}
   }));
   saveCache(CACHE_KEY_QUOTES, results);
@@ -166,8 +182,12 @@ export default function App() {
   const [cacheAge, setCacheAge] = useState(null);
   const [err, setErr] = useState(null);
   const [sortBy, setSortBy] = useState("weight");
+  const [sortDir, setSortDir] = useState("desc");
   const [collapsed, setCollapsed] = useState({});
   const [chartRange, setChartRange] = useState("1M");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [showCustom, setShowCustom] = useState(false);
 
   // Load stale cache age on mount
   useEffect(() => {
@@ -243,15 +263,23 @@ export default function App() {
   const dayUp = totalDay>=0;
   const hasData = Object.keys(quotes).length > 0;
 
+  const handleSort = (col) => {
+    if (sortBy === col) {
+      setSortDir(d => d === "desc" ? "asc" : "desc");
+    } else {
+      setSortBy(col);
+      setSortDir("desc");
+    }
+  };
+
   const sortFn = (a,b) => {
-    if(sortBy==="weight") return (b.mv??b.cb)-(a.mv??a.cb);
-    if(sortBy==="dGA") return (b.dA??0)-(a.dA??0);
-    if(sortBy==="dLA") return (a.dA??0)-(b.dA??0);
-    if(sortBy==="dGP") return (b.dP??0)-(a.dP??0);
-    if(sortBy==="dLP") return (a.dP??0)-(b.dP??0);
-    if(sortBy==="total") return (b.tP??0)-(a.tP??0);
-    if(sortBy==="az") return a.displayTicker.localeCompare(b.displayTicker);
-    return 0;
+    let v = 0;
+    if(sortBy==="weight") v=(b.mv??b.cb)-(a.mv??a.cb);
+    else if(sortBy==="dGA"||sortBy==="dGP") v=(b.dP??0)-(a.dP??0);
+    else if(sortBy==="dLA"||sortBy==="dLP") v=(a.dP??0)-(b.dP??0);
+    else if(sortBy==="total") v=(b.tP??0)-(a.tP??0);
+    else if(sortBy==="az") v=a.displayTicker.localeCompare(b.displayTicker);
+    return sortDir==="asc" ? -v : v;
   };
 
   const toggleCollapse = a => setCollapsed(c=>({...c,[a]:!c[a]}));
@@ -278,35 +306,77 @@ export default function App() {
     } catch { return []; }
   };
 
-  const MiniChart = ({data, height, gradId}) => {
+  const MiniChart = ({data, height, gradId, showAxes=false, customStart="", customEnd=""}) => {
     if (!data||data.length<2) return (
       <div style={{height,display:"flex",alignItems:"center",justifyContent:"center",color:"#AAA",fontSize:11}}>
         {chartLoading?"Loading chart...":"Press Refresh to load"}
       </div>
     );
-    const values=data.map(d=>d.value);
-    const min=Math.min(...values)*0.999; const max=Math.max(...values)*1.001;
-    const range=max-min||1; const W=800; const H=height;
-    const pts=data.map((d,i)=>[(i/(data.length-1))*W, H-((d.value-min)/range)*H]);
-    const isUp=data[data.length-1].value>=data[0].value;
+    
+    // Filter by custom date range if provided
+    let filtered = data;
+    if (customStart) filtered = filtered.filter(d=>d.ts>=new Date(customStart).getTime());
+    if (customEnd) filtered = filtered.filter(d=>d.ts<=new Date(customEnd).getTime()+86400000);
+    if (filtered.length<2) filtered = data;
+    
+    const values=filtered.map(d=>d.value);
+    const minVal=Math.min(...values); const maxVal=Math.max(...values);
+    const pad=0.05; const minPad=minVal*(1-pad); const maxPad=maxVal*(1+pad);
+    const range=maxPad-minPad||1;
+    const W=800; const H=height;
+    const YPAD = showAxes ? 30 : 0;
+    const XPAD = showAxes ? 40 : 0;
+    const chartW=W-XPAD; const chartH=H-YPAD;
+    
+    const pts=filtered.map((d,i)=>[
+      XPAD+(i/(filtered.length-1))*chartW,
+      (H-YPAD)-((d.value-minPad)/range)*chartH
+    ]);
+    
+    const isUp=filtered[filtered.length-1].value>=filtered[0].value;
     const col=isUp?"#1A6B3C":"#B33A3A";
     const polyStr=pts.map(p=>p.join(",")).join(" ");
-    const areaStr=`0,${H} ${polyStr} ${pts[pts.length-1][0]},${H}`;
-    const pct=((data[data.length-1].value-data[0].value)/data[0].value)*100;
-    const fmtDate=ts=>new Date(ts).toLocaleDateString("en-CA",{month:"short",day:"numeric"});
+    const areaStr=`${XPAD},${H-YPAD} ${polyStr} ${pts[pts.length-1][0]},${H-YPAD}`;
+    const pct=((filtered[filtered.length-1].value-filtered[0].value)/filtered[0].value)*100;
+    const fmtDate=ts=>new Date(ts).toLocaleDateString("en-CA",{month:"short",day:"numeric",year:filtered.length>200?"numeric":undefined});
+    const fmtVal=v=>v>=1000000?"$"+f(v/1000000,1)+"M":"$"+f(v/1000,0)+"K";
+    
+    // Y axis labels
+    const yTicks = showAxes ? [minPad, minPad+range*0.25, minPad+range*0.5, minPad+range*0.75, maxPad] : [];
+    // X axis labels - pick ~5 evenly spaced dates
+    const xStep = Math.floor(filtered.length/4);
+    const xTicks = showAxes ? [0,xStep,xStep*2,xStep*3,filtered.length-1].filter(i=>i<filtered.length) : [];
+    
     return (
       <div>
         <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-          <span style={{fontSize:10,color:"#999"}}>{fmtDate(data[0].ts)} – {fmtDate(data[data.length-1].ts)}</span>
+          <span style={{fontSize:10,color:"#999"}}>{fmtDate(filtered[0].ts)} – {fmtDate(filtered[filtered.length-1].ts)}</span>
           <span style={{fontSize:11,fontWeight:700,color:col}}>{isUp?"+":""}{f(pct)}%</span>
         </div>
-        <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height,display:"block"}}>
+        <svg viewBox={`0 0 ${W} ${H+YPAD}`} style={{width:"100%",height:height+(showAxes?20:0),display:"block"}}>
           <defs>
             <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={col} stopOpacity="0.2"/>
+              <stop offset="0%" stopColor={col} stopOpacity="0.15"/>
               <stop offset="100%" stopColor={col} stopOpacity="0"/>
             </linearGradient>
           </defs>
+          {/* Y axis */}
+          {showAxes&&yTicks.map((v,i)=>{
+            const y=(H-YPAD)-((v-minPad)/range)*chartH;
+            return <g key={i}>
+              <line x1={XPAD-4} y1={y} x2={W} y2={y} stroke="#EEE" strokeWidth="1"/>
+              <text x={XPAD-6} y={y+4} textAnchor="end" fontSize="9" fill="#AAA">{fmtVal(v)}</text>
+            </g>;
+          })}
+          {/* X axis */}
+          {showAxes&&xTicks.map(i=>{
+            const x=pts[i][0];
+            return <g key={i}>
+              <line x1={x} y1={0} x2={x} y2={H-YPAD} stroke="#F0F0F0" strokeWidth="1"/>
+              <text x={x} y={H-YPAD+14} textAnchor="middle" fontSize="9" fill="#AAA">{fmtDate(filtered[i].ts)}</text>
+            </g>;
+          })}
+          {/* Chart line */}
           <polygon points={areaStr} fill={`url(#${gradId})`}/>
           <polyline points={polyStr} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
           <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="4" fill={col}/>
@@ -420,18 +490,29 @@ export default function App() {
       {/* CHARTS */}
       <div style={{background:"#FFF",borderBottom:"1px solid #E0DDD8",padding:"24px 28px"}}>
         <div style={{maxWidth:1440,margin:"0 auto"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
             <span style={{fontSize:13,fontWeight:700,color:"#0B2447"}}>Portfolio Balance History</span>
-            <div style={{display:"flex",gap:4,alignItems:"center"}}>
+            <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
               {chartLoading&&<span style={{fontSize:11,color:"#999",marginRight:8}}>Loading…</span>}
-              {["1W","1M","3M","6M","1Y"].map(r=>(
-                <button key={r} onClick={()=>handleRangeChange(r)} style={{
-                  background:chartRange===r?"#0B2447":"#F4F2EE",
-                  color:chartRange===r?"#FFF":"#666",
-                  border:`1px solid ${chartRange===r?"#0B2447":"#DDD"}`,
+              {["1W","1M","3M","6M","1Y","ALL"].map(r=>(
+                <button key={r} onClick={()=>{setShowCustom(false);handleRangeChange(r);}} style={{
+                  background:chartRange===r&&!showCustom?"#0B2447":"#F4F2EE",
+                  color:chartRange===r&&!showCustom?"#FFF":"#666",
+                  border:`1px solid ${chartRange===r&&!showCustom?"#0B2447":"#DDD"}`,
                   borderRadius:3,padding:"4px 12px",fontSize:11,fontWeight:700
                 }}>{r}</button>
               ))}
+              <button onClick={()=>setShowCustom(s=>!s)} style={{
+                background:showCustom?"#0B2447":"#F4F2EE",color:showCustom?"#FFF":"#666",
+                border:`1px solid ${showCustom?"#0B2447":"#DDD"}`,borderRadius:3,padding:"4px 12px",fontSize:11,fontWeight:700
+              }}>Custom</button>
+              {showCustom&&<div style={{display:"flex",gap:6,alignItems:"center",marginLeft:4}}>
+                <input type="date" value={customStart} onChange={e=>setCustomStart(e.target.value)}
+                  style={{border:"1px solid #DDD",borderRadius:3,padding:"3px 8px",fontSize:11,fontFamily:"inherit"}}/>
+                <span style={{fontSize:11,color:"#999"}}>to</span>
+                <input type="date" value={customEnd} onChange={e=>setCustomEnd(e.target.value)}
+                  style={{border:"1px solid #DDD",borderRadius:3,padding:"3px 8px",fontSize:11,fontFamily:"inherit"}}/>
+              </div>}
             </div>
           </div>
 
@@ -440,7 +521,7 @@ export default function App() {
               <span style={{fontSize:11,color:"#999",fontWeight:700,letterSpacing:"0.08em"}}>ALL ACCOUNTS</span>
               <span style={{fontSize:18,fontWeight:700,color:"#0B2447"}}>{fC(totalVal)}</span>
             </div>
-            <MiniChart data={buildPortfolioHistory("ALL")} height={140} gradId="grad-all"/>
+            <MiniChart data={buildPortfolioHistory("ALL")} height={160} gradId="grad-all" showAxes={true} customStart={showCustom?customStart:""} customEnd={showCustom?customEnd:""}/>
           </div>
 
           <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
@@ -521,13 +602,15 @@ export default function App() {
                 <table style={{width:"100%",borderCollapse:"collapse",minWidth:700}}>
                   <thead>
                     <tr style={{borderBottom:"1px solid #F0EDE8",background:"#FAFAF8"}}>
-                      {COLS.map(({label,align,cls,sort})=>(
-                        <th key={label} className={cls+(sort?" col-sort"+(sortBy===sort?" active":""):"")}
-                          onClick={sort?()=>setSortBy(sort):undefined}
-                          style={{padding:"9px 16px",textAlign:align,fontSize:10,fontWeight:700,color:sort&&sortBy===sort?"#0B2447":"#AAA",letterSpacing:"0.1em",whiteSpace:"nowrap"}}>
-                          {label.toUpperCase()}
-                        </th>
-                      ))}
+                      {COLS.map(({label,align,cls,sort})=>{
+                        const isActive = sort && sortBy===sort;
+                        const arrow = isActive ? (sortDir==="desc"?" ▼":" ▲") : (sort?" ↕":"");
+                        return <th key={label} className={cls+(sort?" col-sort"+(isActive?" active":""):"")}
+                          onClick={sort?()=>handleSort(sort):undefined}
+                          style={{padding:"9px 16px",textAlign:align,fontSize:10,fontWeight:700,color:isActive?"#0B2447":"#AAA",letterSpacing:"0.1em",whiteSpace:"nowrap"}}>
+                          {label.toUpperCase()}{arrow}
+                        </th>;
+                      })}
                     </tr>
                   </thead>
                   <tbody>
