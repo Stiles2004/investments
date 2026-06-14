@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 const HOLDINGS = [
   { ticker: "AMAT",      displayTicker: "AMAT",    shares: 30,        avgCostCAD: 53.864,   account: "RRSP", currency: "USD", purchaseDate: "2018-04-15", name: "Applied Materials" },
@@ -19,7 +19,7 @@ const HOLDINGS = [
   { ticker: "GRT-UN.TO", displayTicker: "GRT.UN",  shares: 15,        avgCostCAD: 81.2767,  account: "RRSP", currency: "CAD", purchaseDate: "2022-03-01", name: "Granite REIT" },
   { ticker: "JEF",       displayTicker: "JEF",     shares: 18,        avgCostCAD: 51.5606,  account: "RRSP", currency: "USD", purchaseDate: "2022-06-01", name: "Jefferies Financial" },
   { ticker: "VTS",       displayTicker: "VTS",     shares: 2,         avgCostCAD: 20.455,   account: "RRSP", currency: "USD", purchaseDate: "2023-09-01", name: "Vitesse Energy" },
-  { ticker: "IBIT.TO",   displayTicker: "IBIT",    shares: 11.89983,  avgCostCAD: 49.4419,  account: "RRSP", currency: "CAD", purchaseDate: "2024-06-01", name: "iShares Bitcoin ETF" },
+  { ticker: "IBIT.NE",   displayTicker: "IBIT",    shares: 11.89983,  avgCostCAD: 49.4419,  account: "RRSP", currency: "CAD", purchaseDate: "2024-06-01", name: "iShares Bitcoin ETF" },
   { ticker: "AMZN",      displayTicker: "AMZN",    shares: 20,        avgCostCAD: 89.0355,  account: "RRSP", currency: "USD", purchaseDate: "2022-11-01", name: "Amazon" },
   { ticker: "XEQT.TO",  displayTicker: "XEQT",    shares: 4413,      avgCostCAD: 41.5648,  account: "LIRA", currency: "CAD", purchaseDate: "2025-02-01", name: "iShares Core Equity ETF" },
   { ticker: "CASH.TO",   displayTicker: "CASH.TO", shares: 399.76014, avgCostCAD: 50.055,   account: "TFSA", currency: "CAD", purchaseDate: "2026-05-13", name: "Global X High Int Savings" },
@@ -40,11 +40,8 @@ async function fetchYahoo(url) {
 }
 const YF_QUOTE = "https://query1.finance.yahoo.com/v7/finance/quote?symbols=";
 const YF_CHART = "https://query1.finance.yahoo.com/v8/finance/chart/";
-const RANGE_MAP = { "1W":"5d","1M":"1mo","3M":"3mo","6M":"6mo","1Y":"1y","ALL":"max" };
-const INTERVAL_MAP = { "1W":"1d","1M":"1d","3M":"1d","6M":"1wk","1Y":"1wk","ALL":"1mo" };
 const CACHE_KEY_QUOTES = "pf_quotes_v1";
 const CACHE_KEY_FX = "pf_fx_v1";
-const CACHE_KEY_CHARTS = "pf_charts_v1";
 const MARKET_TTL = 15 * 60 * 1000;
 const CLOSED_TTL = 4 * 60 * 60 * 1000;
 
@@ -139,34 +136,6 @@ async function fetchAllQuotes(force=false) {
   return results;
 }
 
-async function fetchHistory(ticker, range) {
-  try {
-    const url = YF_CHART+ticker+"?interval="+INTERVAL_MAP[range]+"&range="+RANGE_MAP[range];
-    const j = await fetchYahoo(url);
-    const result = j?.chart?.result?.[0];
-    if (!result) return null;
-    const timestamps = result.timestamp ?? [];
-    const closes = result.indicators?.quote?.[0]?.close ?? [];
-    const points = [];
-    timestamps.forEach((ts,i) => { if (closes[i]!=null) points.push({ts:ts*1000, price:closes[i]}); });
-    return points;
-  } catch { return null; }
-}
-
-async function fetchAllCharts(range, force=false) {
-  const cacheKey = CACHE_KEY_CHARTS + "_" + range;
-  if (!force) {
-    const cached = loadCache(cacheKey);
-    if (cached) return cached;
-  }
-  const tickers = [...new Set(HOLDINGS.map(h=>h.ticker))];
-  const results = await Promise.allSettled(tickers.map(t=>fetchHistory(t,range)));
-  const h = {};
-  tickers.forEach((t,i) => { if(results[i].status==="fulfilled"&&results[i].value) h[t]=results[i].value; });
-  saveCache(cacheKey, h);
-  return h;
-}
-
 const SORTS = [
   ["weight","Value"],["dGA","Day $ ▲"],["dLA","Day $ ▼"],
   ["dGP","Day % ▲"],["dLP","Day % ▼"],["total","Total Return"],["az","A–Z"]
@@ -175,19 +144,13 @@ const SORTS = [
 export default function App() {
   const [quotes, setQuotes] = useState(() => loadCacheStale(CACHE_KEY_QUOTES) || {});
   const [fx, setFx] = useState(() => { const c=loadCacheStale(CACHE_KEY_FX); return c||null; });
-  const [histData, setHistData] = useState(() => loadCacheStale(CACHE_KEY_CHARTS+"_1M") || {});
   const [loading, setLoading] = useState(false);
-  const [chartLoading, setChartLoading] = useState(false);
   const [updated, setUpdated] = useState(null);
   const [cacheAge, setCacheAge] = useState(null);
   const [err, setErr] = useState(null);
   const [sortBy, setSortBy] = useState("weight");
   const [sortDir, setSortDir] = useState("desc");
   const [collapsed, setCollapsed] = useState({});
-  const [chartRange, setChartRange] = useState("1M");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [showCustom, setShowCustom] = useState(false);
 
   // Load stale cache age on mount
   useEffect(() => {
@@ -195,17 +158,6 @@ export default function App() {
       const raw = localStorage.getItem(CACHE_KEY_QUOTES);
       if (raw) { const {ts} = JSON.parse(raw); setCacheAge(ts); }
     } catch {}
-  }, []);
-
-  const loadCharts = useCallback(async (range, force=false) => {
-    setChartLoading(true);
-    try {
-      const stale = loadCacheStale(CACHE_KEY_CHARTS+"_"+range);
-      if (stale) setHistData(stale);
-      const fresh = await fetchAllCharts(range, force);
-      setHistData(fresh);
-    } catch {}
-    setChartLoading(false);
   }, []);
 
   const refreshAll = useCallback(async () => {
@@ -220,14 +172,8 @@ export default function App() {
       setCacheAge(Date.now());
     } catch { setErr("Price fetch failed. Showing cached data."); }
     setLoading(false);
-    // Charts load in background after quotes, force refresh
-    loadCharts(chartRange, true);
-  }, [chartRange, loadCharts]);
+  }, []);
 
-  const handleRangeChange = (range) => {
-    setChartRange(range);
-    loadCharts(range);
-  };
 
   const toCAD = p => fx ? p/fx : null;
 
@@ -284,106 +230,6 @@ export default function App() {
 
   const toggleCollapse = a => setCollapsed(c=>({...c,[a]:!c[a]}));
 
-  const buildPortfolioHistory = (accountFilter) => {
-    try {
-      const holdings = accountFilter==="ALL" ? HOLDINGS : HOLDINGS.filter(h=>h.account===accountFilter);
-      if (!holdings.length||!Object.keys(histData).length||!fx) return [];
-      const tsMap = {};
-      holdings.forEach(h => {
-        const hist = histData[h.ticker];
-        if (!hist) return;
-        hist.forEach(pt => { if(!tsMap[pt.ts]) tsMap[pt.ts]={}; tsMap[pt.ts][h.ticker]=pt.price; });
-      });
-      const timestamps = Object.keys(tsMap).map(Number).sort((a,b)=>a-b);
-      return timestamps.map(ts => {
-        let total=0;
-        holdings.forEach(h => {
-          const price=tsMap[ts][h.ticker];
-          total += price!=null ? (h.currency==="USD"?price/fx:price)*h.shares : h.avgCostCAD*h.shares;
-        });
-        return {ts, value:total};
-      });
-    } catch { return []; }
-  };
-
-  const MiniChart = ({data, height, gradId, showAxes=false, customStart="", customEnd=""}) => {
-    if (!data||data.length<2) return (
-      <div style={{height,display:"flex",alignItems:"center",justifyContent:"center",color:"#AAA",fontSize:11}}>
-        {chartLoading?"Loading chart...":"Press Refresh to load"}
-      </div>
-    );
-    
-    // Filter by custom date range if provided
-    let filtered = data;
-    if (customStart) filtered = filtered.filter(d=>d.ts>=new Date(customStart).getTime());
-    if (customEnd) filtered = filtered.filter(d=>d.ts<=new Date(customEnd).getTime()+86400000);
-    if (filtered.length<2) filtered = data;
-    
-    const values=filtered.map(d=>d.value);
-    const minVal=Math.min(...values); const maxVal=Math.max(...values);
-    const pad=0.05; const minPad=minVal*(1-pad); const maxPad=maxVal*(1+pad);
-    const range=maxPad-minPad||1;
-    const W=800; const H=height;
-    const YPAD = showAxes ? 30 : 0;
-    const XPAD = showAxes ? 40 : 0;
-    const chartW=W-XPAD; const chartH=H-YPAD;
-    
-    const pts=filtered.map((d,i)=>[
-      XPAD+(i/(filtered.length-1))*chartW,
-      (H-YPAD)-((d.value-minPad)/range)*chartH
-    ]);
-    
-    const isUp=filtered[filtered.length-1].value>=filtered[0].value;
-    const col=isUp?"#1A6B3C":"#B33A3A";
-    const polyStr=pts.map(p=>p.join(",")).join(" ");
-    const areaStr=`${XPAD},${H-YPAD} ${polyStr} ${pts[pts.length-1][0]},${H-YPAD}`;
-    const pct=((filtered[filtered.length-1].value-filtered[0].value)/filtered[0].value)*100;
-    const fmtDate=ts=>new Date(ts).toLocaleDateString("en-CA",{month:"short",day:"numeric",year:filtered.length>200?"numeric":undefined});
-    const fmtVal=v=>v>=1000000?"$"+f(v/1000000,1)+"M":"$"+f(v/1000,0)+"K";
-    
-    // Y axis labels
-    const yTicks = showAxes ? [minPad, minPad+range*0.25, minPad+range*0.5, minPad+range*0.75, maxPad] : [];
-    // X axis labels - pick ~5 evenly spaced dates
-    const xStep = Math.floor(filtered.length/4);
-    const xTicks = showAxes ? [0,xStep,xStep*2,xStep*3,filtered.length-1].filter(i=>i<filtered.length) : [];
-    
-    return (
-      <div>
-        <div style={{display:"flex",justifyContent:"space-between",marginBottom:4}}>
-          <span style={{fontSize:10,color:"#999"}}>{fmtDate(filtered[0].ts)} – {fmtDate(filtered[filtered.length-1].ts)}</span>
-          <span style={{fontSize:11,fontWeight:700,color:col}}>{isUp?"+":""}{f(pct)}%</span>
-        </div>
-        <svg viewBox={`0 0 ${W} ${H+YPAD}`} style={{width:"100%",height:height+(showAxes?20:0),display:"block"}}>
-          <defs>
-            <linearGradient id={gradId} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={col} stopOpacity="0.15"/>
-              <stop offset="100%" stopColor={col} stopOpacity="0"/>
-            </linearGradient>
-          </defs>
-          {/* Y axis */}
-          {showAxes&&yTicks.map((v,i)=>{
-            const y=(H-YPAD)-((v-minPad)/range)*chartH;
-            return <g key={i}>
-              <line x1={XPAD-4} y1={y} x2={W} y2={y} stroke="#EEE" strokeWidth="1"/>
-              <text x={XPAD-6} y={y+4} textAnchor="end" fontSize="9" fill="#AAA">{fmtVal(v)}</text>
-            </g>;
-          })}
-          {/* X axis */}
-          {showAxes&&xTicks.map(i=>{
-            const x=pts[i][0];
-            return <g key={i}>
-              <line x1={x} y1={0} x2={x} y2={H-YPAD} stroke="#F0F0F0" strokeWidth="1"/>
-              <text x={x} y={H-YPAD+14} textAnchor="middle" fontSize="9" fill="#AAA">{fmtDate(filtered[i].ts)}</text>
-            </g>;
-          })}
-          {/* Chart line */}
-          <polygon points={areaStr} fill={`url(#${gradId})`}/>
-          <polyline points={polyStr} fill="none" stroke={col} strokeWidth="2" strokeLinejoin="round" strokeLinecap="round"/>
-          <circle cx={pts[pts.length-1][0]} cy={pts[pts.length-1][1]} r="4" fill={col}/>
-        </svg>
-      </div>
-    );
-  };
 
   const acctTotals = ACCT_ORDER.reduce((acc,a)=>{
     const h=withW.filter(r=>r.account===a);
@@ -439,7 +285,7 @@ export default function App() {
           </div>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             {cacheAgeStr&&<span style={{fontSize:11,color:"#8FA8C8"}}>
-              {loading?"Refreshing...":"Data: "+cacheAgeStr}
+              "Data: "+(cacheAgeStr||"never")
               {!isMarketOpen()&&" · Market closed"}
             </span>}
             <button onClick={refreshAll} disabled={loading} style={{
@@ -487,57 +333,6 @@ export default function App() {
         </div>
       </div>
 
-      {/* CHARTS */}
-      <div style={{background:"#FFF",borderBottom:"1px solid #E0DDD8",padding:"24px 28px"}}>
-        <div style={{maxWidth:1440,margin:"0 auto"}}>
-          <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16,flexWrap:"wrap",gap:8}}>
-            <span style={{fontSize:13,fontWeight:700,color:"#0B2447"}}>Portfolio Balance History</span>
-            <div style={{display:"flex",gap:4,alignItems:"center",flexWrap:"wrap"}}>
-              {chartLoading&&<span style={{fontSize:11,color:"#999",marginRight:8}}>Loading…</span>}
-              {["1W","1M","3M","6M","1Y","ALL"].map(r=>(
-                <button key={r} onClick={()=>{setShowCustom(false);handleRangeChange(r);}} style={{
-                  background:chartRange===r&&!showCustom?"#0B2447":"#F4F2EE",
-                  color:chartRange===r&&!showCustom?"#FFF":"#666",
-                  border:`1px solid ${chartRange===r&&!showCustom?"#0B2447":"#DDD"}`,
-                  borderRadius:3,padding:"4px 12px",fontSize:11,fontWeight:700
-                }}>{r}</button>
-              ))}
-              <button onClick={()=>setShowCustom(s=>!s)} style={{
-                background:showCustom?"#0B2447":"#F4F2EE",color:showCustom?"#FFF":"#666",
-                border:`1px solid ${showCustom?"#0B2447":"#DDD"}`,borderRadius:3,padding:"4px 12px",fontSize:11,fontWeight:700
-              }}>Custom</button>
-              {showCustom&&<div style={{display:"flex",gap:6,alignItems:"center",marginLeft:4}}>
-                <input type="date" value={customStart} onChange={e=>setCustomStart(e.target.value)}
-                  style={{border:"1px solid #DDD",borderRadius:3,padding:"3px 8px",fontSize:11,fontFamily:"inherit"}}/>
-                <span style={{fontSize:11,color:"#999"}}>to</span>
-                <input type="date" value={customEnd} onChange={e=>setCustomEnd(e.target.value)}
-                  style={{border:"1px solid #DDD",borderRadius:3,padding:"3px 8px",fontSize:11,fontFamily:"inherit"}}/>
-              </div>}
-            </div>
-          </div>
-
-          <div style={{marginBottom:20,padding:"16px",background:"#FAFAF8",borderRadius:8,border:"1px solid #EEE"}}>
-            <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
-              <span style={{fontSize:11,color:"#999",fontWeight:700,letterSpacing:"0.08em"}}>ALL ACCOUNTS</span>
-              <span style={{fontSize:18,fontWeight:700,color:"#0B2447"}}>{fC(totalVal)}</span>
-            </div>
-            <MiniChart data={buildPortfolioHistory("ALL")} height={160} gradId="grad-all" showAxes={true} customStart={showCustom?customStart:""} customEnd={showCustom?customEnd:""}/>
-          </div>
-
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-            {ACCT_ORDER.map(a=>{
-              const t=acctTotals[a];
-              return <div key={a} style={{background:"#FAFAF8",borderRadius:8,padding:"14px",border:"1px solid #EEE",borderTop:`3px solid ${ACCT_COLOR[a]}`}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"baseline",marginBottom:8}}>
-                  <span style={{fontSize:10,fontWeight:800,color:ACCT_COLOR[a],letterSpacing:"0.1em"}}>{a}</span>
-                  <span style={{fontSize:13,fontWeight:700,color:"#0B2447"}}>{fC(t.val)}</span>
-                </div>
-                <MiniChart data={buildPortfolioHistory(a)} height={65} gradId={"grad-"+a}/>
-              </div>;
-            })}
-          </div>
-        </div>
-      </div>
 
       {/* SORT BAR */}
       <div style={{background:"#FFF",borderBottom:"1px solid #E0DDD8",padding:"10px 28px",position:"sticky",top:0,zIndex:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
