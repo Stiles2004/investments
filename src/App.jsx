@@ -94,27 +94,30 @@ async function fetchAllQuotes(force=false) {
     if (cached) return cached;
   }
   const allTickers = [...HOLDINGS.map(h=>h.ticker), "CADUSD=X"];
-  const chunkSize = 25;
-  const chunks = [];
-  for (let i=0; i<allTickers.length; i+=chunkSize) chunks.push(allTickers.slice(i,i+chunkSize));
   const results = {};
-  await Promise.all(chunks.map(async chunk => {
-    const url = YF_QUOTE + chunk.map(encodeURIComponent).join(",") + "&fields=regularMarketPrice,regularMarketChange,regularMarketChangePercent,regularMarketVolume,averageDailyVolume3Month,fiftyTwoWeekHigh,fiftyTwoWeekLow,previousClose";
-    const j = await fetchYahoo(url);
-    const items = j?.quoteResponse?.result ?? [];
-    items.forEach(q => {
-      if (q.symbol && q.regularMarketPrice) {
-        results[q.symbol] = {
-          price: q.regularMarketPrice,
-          changePct: q.regularMarketChangePercent ?? null,
-          changeAmt: q.regularMarketChange ?? null,
-          hi52: q.fiftyTwoWeekHigh ?? null,
-          lo52: q.fiftyTwoWeekLow ?? null,
-          vol: q.regularMarketVolume ?? null,
-          avgVol: q.averageDailyVolume3Month ?? null,
+  await Promise.all(allTickers.map(async ticker => {
+    try {
+      const url = YF_CHART + ticker + "?interval=1d&range=5d";
+      const j = await fetchYahoo(url);
+      const m = j?.chart?.result?.[0]?.meta;
+      const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
+      const valid = closes.filter(c => c != null);
+      const prev = valid.length >= 2 ? valid[valid.length-2] : null;
+      const curr = m?.regularMarketPrice ?? null;
+      const chgAmt = (curr!=null&&prev!=null) ? curr-prev : null;
+      const chgPct = (chgAmt!=null&&prev) ? (chgAmt/prev)*100 : null;
+      if (m && curr) {
+        results[ticker] = {
+          price: curr,
+          changePct: chgPct,
+          changeAmt: chgAmt,
+          hi52: m.fiftyTwoWeekHigh ?? null,
+          lo52: m.fiftyTwoWeekLow ?? null,
+          vol: m.regularMarketVolume ?? null,
+          avgVol: m.averageDailyVolume3Month ?? m.averageDailyVolume10Day ?? null,
         };
       }
-    });
+    } catch {}
   }));
   saveCache(CACHE_KEY_QUOTES, results);
   return results;
