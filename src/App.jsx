@@ -112,8 +112,8 @@ async function fetchAllQuotes(force=false) {
 }
 
 const SORTS = [
-  ["weight","Value"],["dGA","Day $ \u25b2"],["dLA","Day $ \u25bc"],
-  ["dGP","Day % \u25b2"],["dLP","Day % \u25bc"],["total","Total Return"],["az","A\u2013Z"]
+  ["weight","Value"],["dGA","Day $ ▲"],["dLA","Day $ ▼"],
+  ["dGP","Day % ▲"],["dLP","Day % ▼"],["total","Total Return"],["az","A–Z"]
 ];
 
 export default function App() {
@@ -265,13 +265,13 @@ export default function App() {
         <div style={{display:"flex",alignItems:"center",gap:12}}>
           {cacheAgeStr&&<span style={{fontSize:11,color:"#8FA8C8"}}>
             {loading?"Refreshing...":"Data: "+cacheAgeStr}
-            {!isMarketOpen()&&" \u00b7 Market closed"}
+            {!isMarketOpen()&&" · Market closed"}
           </span>}
           <button onClick={refreshAll} disabled={loading} style={{
             background:loading?"#1A3A6A":"#C9A84C",
             color:loading?"#8FA8C8":"#0B2447",
             border:"none",borderRadius:4,padding:"8px 20px",fontSize:12,fontWeight:700,letterSpacing:"0.06em"
-          }}>{loading?"LOADING\u2026":"\u21bb  REFRESH"}</button>
+          }}>{loading?"LOADING\u2026":"↻  REFRESH"}</button>
         </div>
       </div>
     </div>
@@ -312,11 +312,11 @@ export default function App() {
       <div style={{background:"#0B2447",paddingBottom:24}}>
         <div style={{maxWidth:1440,margin:"0 auto",padding:"20px 28px 0"}}>
           <div style={{marginBottom:20,borderBottom:"1px solid rgba(255,255,255,0.08)",paddingBottom:20}}>
-            <div style={{fontSize:10,color:"#8FA8C8",letterSpacing:"0.16em",fontWeight:600,marginBottom:6}}>TOTAL PORTFOLIO \u00b7 CANADIAN DOLLARS</div>
+            <div style={{fontSize:10,color:"#8FA8C8",letterSpacing:"0.16em",fontWeight:600,marginBottom:6}}>TOTAL PORTFOLIO · CANADIAN DOLLARS</div>
             <div style={{display:"flex",alignItems:"baseline",gap:20,flexWrap:"wrap"}}>
               <span style={{fontSize:48,fontWeight:800,color:"#FFF",letterSpacing:"-0.02em"}}>{fC(totalVal)}</span>
               {hasData&&<span style={{fontSize:20,fontWeight:700,color:dayUp?"#4ADE80":"#F87171"}}>
-                {dayUp?"\u25b2":"\u25bc"} {fC(Math.abs(totalDay))}
+                {dayUp?"▲":"▼"} {fC(Math.abs(totalDay))}
                 <span style={{fontSize:14,marginLeft:8,opacity:0.85}}>({fP(Math.abs(totalDayP),false)}) today</span>
               </span>}
             </div>
@@ -386,19 +386,19 @@ export default function App() {
             <button key={v} onClick={()=>handleSort(v)} style={{
               background:sortBy===v?"#0B2447":"#F4F2EE",color:sortBy===v?"#FFF":"#666",
               border:`1px solid ${sortBy===v?"#0B2447":"#DDD"}`,borderRadius:3,padding:"5px 12px",fontSize:11,fontWeight:600
-            }}>{l}{sortBy===v?(sortDir==="desc"?" \u25bc":" \u25b2"):""}</button>
+            }}>{l}{sortBy===v?(sortDir==="desc"?" ▼":" ▲"):""}</button>
           ))}
           <span style={{marginLeft:"auto",fontSize:11,color:"#AAA"}}>{HOLDINGS.length} positions</span>
         </div>
       </div>
 
-      {err&&<div style={{background:"#FFFBEB",padding:"10px 28px",fontSize:13,color:"#92400E",borderBottom:"1px solid #FCD34D"}}>\u26a0 {err}</div>}
+      {err&&<div style={{background:"#FFFBEB",padding:"10px 28px",fontSize:13,color:"#92400E",borderBottom:"1px solid #FCD34D"}}>⚠ {err}</div>}
 
       {!hasData&&!loading&&(
         <div style={{textAlign:"center",padding:"60px 24px"}}>
           <div style={{fontSize:28,fontWeight:700,color:"#0B2447",marginBottom:8}}>Ready</div>
           <div style={{fontSize:14,color:"#999",marginBottom:24}}>Press Refresh to fetch live prices</div>
-          <button onClick={refreshAll} style={{background:"#0B2447",color:"#FFF",border:"none",borderRadius:4,padding:"12px 32px",fontSize:13,fontWeight:700}}>\u21bb Load Prices</button>
+          <button onClick={refreshAll} style={{background:"#0B2447",color:"#FFF",border:"none",borderRadius:4,padding:"12px 32px",fontSize:13,fontWeight:700}}>↻ Load Prices</button>
         </div>
       )}
 
@@ -435,11 +435,11 @@ export default function App() {
                     </div>
                     {hasData&&(
                       <div style={{textAlign:"right"}}>
-                        <div style={{fontSize:13,fontWeight:600,color:acctDayUp?"#1A6B3C":"#B33A3A"}}>{acctDayUp?"\u25b2":"\u25bc"} {fC(Math.abs(acctDay))}</div>
+                        <div style={{fontSize:13,fontWeight:600,color:acctDayUp?"#1A6B3C":"#B33A3A"}}>{acctDayUp?"▲":"▼"} {fC(Math.abs(acctDay))}</div>
                         <div style={{fontSize:11,color:acctDayUp?"#1A6B3C":"#B33A3A"}}>today</div>
                       </div>
                     )}
-                    <span style={{fontSize:14,color:"#CCC"}}>{isCollapsed?"\u25bc":"\u25b2"}</span>
+                    <span style={{fontSize:14,color:"#CCC"}}>{isCollapsed?"▼":"▲"}</span>
                   </div>
                 </div>
 
@@ -451,7 +451,7 @@ export default function App() {
                           <tr style={{borderBottom:"1px solid #F0EDE8",background:"#FAFAF8"}}>
                             {COLS.map(({label,align,cls,sort})=>{
                               const isActive=sort&&sortBy===sort;
-                              const arrow=isActive?(sortDir==="desc"?" \u25bc":" \u25b2"):(sort?" \u2195":"");
+                              const arrow=isActive?(sortDir==="desc"?" ▼":" ▲"):(sort?" ↕":"");
                               return (
                                 <th key={label} className={cls+(sort?" col-sort"+(isActive?" active":""):"")}
                                   onClick={sort?()=>handleSort(sort):undefined}
@@ -485,7 +485,7 @@ export default function App() {
                                 </td>
                                 <td style={{padding:"13px 16px",textAlign:"right"}}>
                                   {r.dP!=null?<>
-                                    <div style={{fontSize:13,fontWeight:700,color:dUp?"#1A6B3C":"#B33A3A"}}>{dUp?"\u25b2":"\u25bc"} {fP(Math.abs(r.dP),false)}</div>
+                                    <div style={{fontSize:13,fontWeight:700,color:dUp?"#1A6B3C":"#B33A3A"}}>{dUp?"▲":"▼"} {fP(Math.abs(r.dP),false)}</div>
                                     <div style={{fontSize:11,color:dUp?"#1A6B3C":"#B33A3A"}}>{(r.dA??0)>=0?"+":""}{fC(r.dA??0)} CAD</div>
                                     {r.dAusd!=null&&<div style={{fontSize:10,color:"#BBB"}}>{(r.dAusd??0)>=0?"+":""}{fC(r.dAusd??0)} USD</div>}
                                   </>:<span style={{color:"#DDD"}}>—</span>}
@@ -523,7 +523,7 @@ export default function App() {
                                 <td className="hm2" style={{padding:"13px 16px",textAlign:"right"}}>
                                   {r.q?.vol?<>
                                     <div style={{fontSize:12,color:"#444"}}>{(r.q.vol/1e6).toFixed(2)}M</div>
-                                    {r.vR&&<div style={{fontSize:10,color:r.vR>1.5?"#96780A":"#BBB",fontWeight:r.vR>1.5?700:400}}>{f(r.vR,1)}\u00d7 avg</div>}
+                                    {r.vR&&<div style={{fontSize:10,color:r.vR>1.5?"#96780A":"#BBB",fontWeight:r.vR>1.5?700:400}}>{f(r.vR,1)}× avg</div>}
                                   </>:<span style={{color:"#DDD"}}>—</span>}
                                 </td>
                               </tr>
@@ -550,7 +550,7 @@ export default function App() {
             );
           })}
           <div style={{textAlign:"center",fontSize:11,color:"#BBB",marginTop:8}}>
-            Data via Yahoo Finance \u00b7 Prices delayed ~15 min \u00b7 All values in CAD \u00b7 Not financial advice
+            Data via Yahoo Finance · Prices delayed ~15 min · All values in CAD · Not financial advice
           </div>
         </div>
       )}
