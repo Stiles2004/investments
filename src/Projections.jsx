@@ -1,6 +1,11 @@
 import { useState, useMemo } from "react";
 
 const ACCT_COLOR = { RRSP: "#1B4F8A", LIRA: "#0A8A50", TFSA: "#96780A", RESP: "#6B3FA0" };
+const PROJ_KEY = "pf_projections_v1";
+function loadProj() {
+  try { const r = localStorage.getItem(PROJ_KEY); return r ? JSON.parse(r) : null; } catch { return null; }
+}
+function saveProj(data) { try { localStorage.setItem(PROJ_KEY, JSON.stringify(data)); } catch {} }
 
 const f = (n, d=2) => n.toLocaleString("en-CA", {minimumFractionDigits:d, maximumFractionDigits:d});
 const fC = n => (n<0?"-$":"$")+f(Math.abs(n));
@@ -17,6 +22,12 @@ function project(startVal, annualReturn, years, monthlyContrib=0) {
 
 function buildGrowthCurve(accounts, annualReturn, currentAge, retirementAge) {
   const years = retirementAge - currentAge;
+
+  // Persist inputs on any change
+  const updateAge = v => { setCurrentAge(v); saveProj({currentAge:v, retirementAge, returnRate, contribs}); };
+  const updateRetAge = v => { setRetirementAge(v); saveProj({currentAge, retirementAge:v, returnRate, contribs}); };
+  const updateReturn = v => { setReturnRate(v); saveProj({currentAge, retirementAge, returnRate:v, contribs}); };
+  const updateContribs = (acct, val) => { const c={...contribs,[acct]:val}; setContribs(c); saveProj({currentAge, retirementAge, returnRate, contribs:c}); };
   const points = [];
   for (let y = 0; y <= years; y++) {
     let total = 0;
@@ -35,6 +46,12 @@ function GrowthChart({ curves, currentAge, retirementAge }) {
   const XPAD = 50; const YPAD = 20;
   const chartW = W - XPAD; const chartH = H - YPAD;
   const years = retirementAge - currentAge;
+
+  // Persist inputs on any change
+  const updateAge = v => { setCurrentAge(v); saveProj({currentAge:v, retirementAge, returnRate, contribs}); };
+  const updateRetAge = v => { setRetirementAge(v); saveProj({currentAge, retirementAge:v, returnRate, contribs}); };
+  const updateReturn = v => { setReturnRate(v); saveProj({currentAge, retirementAge, returnRate:v, contribs}); };
+  const updateContribs = (acct, val) => { const c={...contribs,[acct]:val}; setContribs(c); saveProj({currentAge, retirementAge, returnRate, contribs:c}); };
   const toX = age => XPAD + ((age - currentAge) / years) * chartW;
   const toY = val => H - YPAD - (val / maxVal) * chartH;
   const fmtVal = v => v >= 1000000 ? "$"+f(v/1000000,1)+"M" : "$"+f(v/1000,0)+"K";
@@ -81,12 +98,19 @@ export default function Projections({ portfolioData }) {
     return accts;
   }, [portfolioData]);
 
-  const [currentAge, setCurrentAge] = useState(41);
-  const [retirementAge, setRetirementAge] = useState(67);
-  const [returnRate, setReturnRate] = useState(7);
-  const [contribs, setContribs] = useState({ RRSP: 0, LIRA: 0, TFSA: 400, RESP: 100 });
+  const saved = loadProj();
+  const [currentAge, setCurrentAge] = useState(saved?.currentAge ?? 41);
+  const [retirementAge, setRetirementAge] = useState(saved?.retirementAge ?? 67);
+  const [returnRate, setReturnRate] = useState(saved?.returnRate ?? 7);
+  const [contribs, setContribs] = useState(saved?.contribs ?? { RRSP: 0, LIRA: 0, TFSA: 400, RESP: 100 });
 
   const years = retirementAge - currentAge;
+
+  // Persist inputs on any change
+  const updateAge = v => { setCurrentAge(v); saveProj({currentAge:v, retirementAge, returnRate, contribs}); };
+  const updateRetAge = v => { setRetirementAge(v); saveProj({currentAge, retirementAge:v, returnRate, contribs}); };
+  const updateReturn = v => { setReturnRate(v); saveProj({currentAge, retirementAge, returnRate:v, contribs}); };
+  const updateContribs = (acct, val) => { const c={...contribs,[acct]:val}; setContribs(c); saveProj({currentAge, retirementAge, returnRate, contribs:c}); };
 
   const projectAccount = (acct, rate) => project(accounts[acct] || 0, rate, years, contribs[acct]/12);
 
@@ -133,13 +157,13 @@ export default function Projections({ portfolioData }) {
 
             <div style={{marginBottom:14}}>
               <label style={{fontSize:11,fontWeight:600,color:"#666",display:"block",marginBottom:5}}>Current Age</label>
-              <input type="number" value={currentAge} onChange={e=>setCurrentAge(Number(e.target.value))} min={25} max={70}
+              <input type="number" value={currentAge} onChange={e=>updateAge(Number(e.target.value))} min={25} max={70}
                 style={{width:"100%",border:"1px solid #DDD",borderRadius:4,padding:"8px 10px",fontSize:14,fontWeight:600,color:"#0B2447",fontFamily:"inherit"}}/>
             </div>
 
             <div style={{marginBottom:14}}>
               <label style={{fontSize:11,fontWeight:600,color:"#666",display:"block",marginBottom:5}}>Retirement Age</label>
-              <input type="number" value={retirementAge} onChange={e=>setRetirementAge(Number(e.target.value))} min={50} max={80}
+              <input type="number" value={retirementAge} onChange={e=>updateRetAge(Number(e.target.value))} min={50} max={80}
                 style={{width:"100%",border:"1px solid #DDD",borderRadius:4,padding:"8px 10px",fontSize:14,fontWeight:600,color:"#0B2447",fontFamily:"inherit"}}/>
             </div>
 
@@ -147,7 +171,7 @@ export default function Projections({ portfolioData }) {
               <label style={{fontSize:11,fontWeight:600,color:"#666",display:"block",marginBottom:5}}>
                 Annual Return: <span style={{color:"#0B2447",fontWeight:800}}>{returnRate}%</span>
               </label>
-              <input type="range" min={3} max={12} step={0.5} value={returnRate} onChange={e=>setReturnRate(Number(e.target.value))}
+              <input type="range" min={3} max={12} step={0.5} value={returnRate} onChange={e=>updateReturn(Number(e.target.value))}
                 style={{width:"100%",accentColor:"#0B2447"}}/>
               <div style={{display:"flex",justifyContent:"space-between",fontSize:10,color:"#AAA",marginTop:2}}>
                 <span>3%</span><span>12%</span>
@@ -162,7 +186,7 @@ export default function Projections({ portfolioData }) {
                   <div style={{position:"relative",flex:1}}>
                     <span style={{position:"absolute",left:8,top:"50%",transform:"translateY(-50%)",fontSize:12,color:"#999"}}>$</span>
                     <input type="number" value={contribs[acct]} min={0}
-                      onChange={e=>setContribs(c=>({...c,[acct]:Number(e.target.value)}))}
+                      onChange={e=>updateContribs(acct,Number(e.target.value))}
                       onFocus={e=>e.target.select()}
                       style={{width:"100%",border:"1px solid #DDD",borderRadius:4,padding:"6px 8px 6px 20px",fontSize:13,fontFamily:"inherit"}}/>
                   </div>
