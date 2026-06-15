@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import Projections from "./Projections.jsx";
 
 const HOLDINGS = [
   { ticker: "AMAT",      displayTicker: "AMAT",    shares: 30,        avgCostCAD: 53.864,   account: "RRSP", currency: "USD", purchaseDate: "2018-04-15", name: "Applied Materials" },
@@ -28,6 +29,8 @@ const HOLDINGS = [
 
 const ACCT_COLOR = { RRSP: "#1B4F8A", LIRA: "#0A8A50", TFSA: "#96780A", RESP: "#6B3FA0" };
 const ACCT_ORDER = ["RRSP", "LIRA", "TFSA", "RESP"];
+// Cash balances per account in CAD - update manually when needed
+const CASH_BALANCES = { RRSP: 100.43, LIRA: 0, TFSA: 0, RESP: 0 };
 // Use our own Vercel serverless function as proxy — no CORS issues
 async function fetchYahoo(url) {
   try {
@@ -148,6 +151,7 @@ export default function App() {
   const [updated, setUpdated] = useState(null);
   const [cacheAge, setCacheAge] = useState(null);
   const [err, setErr] = useState(null);
+  const [activeTab, setActiveTab] = useState("dashboard");
   const [sortBy, setSortBy] = useState("weight");
   const [sortDir, setSortDir] = useState("desc");
   const [collapsed, setCollapsed] = useState({});
@@ -198,7 +202,7 @@ export default function App() {
     return {...h, q, pC, pN, mv, cb, dA, dP, dAusd, tG, tP, hi, lo, rP, days, ann, vR};
   });
 
-  const totalVal = rows.reduce((s,r)=>s+(r.mv??r.cb),0);
+  const totalVal = rows.reduce((s,r)=>s+(r.mv??r.cb),0) + Object.values(CASH_BALANCES).reduce((s,v)=>s+v,0);
   const loaded = rows.filter(r=>r.mv!==null);
   const totalDay = loaded.reduce((s,r)=>s+(r.dA??0),0);
   const totalDayP = totalVal>0?(totalDay/(totalVal-totalDay))*100:0;
@@ -224,6 +228,7 @@ export default function App() {
     else if(sortBy==="dGA"||sortBy==="dGP") v=(b.dP??0)-(a.dP??0);
     else if(sortBy==="dLA"||sortBy==="dLP") v=(a.dP??0)-(b.dP??0);
     else if(sortBy==="total") v=(b.tP??0)-(a.tP??0);
+    else if(sortBy==="ann") v=(b.ann??-9999)-(a.ann??-9999);
     else if(sortBy==="az") v=a.displayTicker.localeCompare(b.displayTicker);
     return sortDir==="asc" ? -v : v;
   };
@@ -233,7 +238,13 @@ export default function App() {
 
   const acctTotals = ACCT_ORDER.reduce((acc,a)=>{
     const h=withW.filter(r=>r.account===a);
-    acc[a]={val:h.reduce((s,r)=>s+(r.mv??r.cb),0),cost:h.reduce((s,r)=>s+r.cb,0),day:h.reduce((s,r)=>s+(r.dA??0),0)};
+    const cash = CASH_BALANCES[a] || 0;
+    acc[a]={
+      val:h.reduce((s,r)=>s+(r.mv??r.cb),0) + cash,
+      cost:h.reduce((s,r)=>s+r.cb,0) + cash,
+      day:h.reduce((s,r)=>s+(r.dA??0),0),
+      cash
+    };
     return acc;
   },{});
 
@@ -245,7 +256,7 @@ export default function App() {
     {label:"Weight",        align:"right", cls:"hm", sort:"weight"},
     {label:"52-Week Range", align:"center",cls:"hm", sort:null},
     {label:"Total Return",  align:"right", cls:"",   sort:"total"},
-    {label:"Ann. Return",   align:"right", cls:"hm2",sort:null},
+    {label:"Ann. Return",   align:"right", cls:"hm2",sort:"ann"},
     {label:"Vol / Avg",     align:"right", cls:"hm2",sort:null},
   ];
 
@@ -255,6 +266,40 @@ export default function App() {
     if (mins < 60) return `${mins}m ago`;
     return `${Math.floor(mins/60)}h ago`;
   })() : null;
+
+  // Portfolio values to pass to projections
+  const portfolioForProjections = {
+    RRSP: acctTotals.RRSP?.val || 0,
+    LIRA: acctTotals.LIRA?.val || 0,
+    TFSA: acctTotals.TFSA?.val || 0,
+    RESP: acctTotals.RESP?.val || 0,
+  };
+
+  if (activeTab === "projections") {
+    return (
+      <div style={{fontFamily:"'Inter','Helvetica Neue',Arial,sans-serif",minHeight:"100vh"}}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap'); *{box-sizing:border-box;margin:0;padding:0;} body,*{font-family:'Inter','Helvetica Neue',Arial,sans-serif;}`}</style>
+        <div style={{background:"#0B2447",borderBottom:"3px solid #C9A84C"}}>
+          <div style={{maxWidth:1440,margin:"0 auto",padding:"0 28px",display:"flex",alignItems:"center",height:54,gap:14}}>
+            <div style={{width:2,height:24,background:"#C9A84C"}}/>
+            <span style={{fontSize:16,fontWeight:700,color:"#FFF",letterSpacing:"0.04em"}}>Portfolio</span>
+            <div style={{display:"flex",gap:2,marginLeft:16}}>
+              {["dashboard","projections"].map(tab=>(
+                <button key={tab} onClick={()=>setActiveTab(tab)} style={{
+                  background:activeTab===tab?"rgba(201,168,76,0.2)":"none",
+                  color:activeTab===tab?"#C9A84C":"#8FA8C8",
+                  border:`1px solid ${activeTab===tab?"#C9A84C":"transparent"}`,
+                  borderRadius:4,padding:"4px 12px",fontSize:11,fontWeight:700,
+                  letterSpacing:"0.06em",textTransform:"uppercase",cursor:"pointer"
+                }}>{tab}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <Projections portfolioData={portfolioForProjections}/>
+      </div>
+    );
+  }
 
   return (
     <div style={{fontFamily:"'Inter','Helvetica Neue',Arial,sans-serif",background:"#F4F2EE",minHeight:"100vh"}}>
@@ -282,10 +327,21 @@ export default function App() {
             <div style={{width:2,height:24,background:"#C9A84C"}}/>
             <span style={{fontSize:16,fontWeight:700,color:"#FFF",letterSpacing:"0.04em"}}>Portfolio</span>
             {fx&&<span style={{fontSize:11,color:"#8FA8C8",marginLeft:4}}>USD/CAD {(1/fx).toFixed(4)}</span>}
+            <div style={{display:"flex",gap:2,marginLeft:16}}>
+              {["dashboard","projections"].map(tab=>(
+                <button key={tab} onClick={()=>setActiveTab(tab)} style={{
+                  background:activeTab===tab?"rgba(201,168,76,0.2)":"none",
+                  color:activeTab===tab?"#C9A84C":"#8FA8C8",
+                  border:`1px solid ${activeTab===tab?"#C9A84C":"transparent"}`,
+                  borderRadius:4,padding:"4px 12px",fontSize:11,fontWeight:700,
+                  letterSpacing:"0.06em",textTransform:"uppercase",cursor:"pointer"
+                }}>{tab}</button>
+              ))}
+            </div>
           </div>
           <div style={{display:"flex",alignItems:"center",gap:12}}>
             {cacheAgeStr&&<span style={{fontSize:11,color:"#8FA8C8"}}>
-              "Data: "+(cacheAgeStr||"never")
+              {cacheAgeStr ? "Data: "+cacheAgeStr : "No data"}
               {!isMarketOpen()&&" · Market closed"}
             </span>}
             <button onClick={refreshAll} disabled={loading} style={{
@@ -327,6 +383,7 @@ export default function App() {
                   <span style={{color:isUp?"#4ADE80":"#F87171"}}>{isUp?"+":""}{fC(t.day)} today</span>
                   <span style={{color:g>=0?"#4ADE80":"#F87171"}}>{fP(gp)} all-time</span>
                 </div>
+                {t.cash>0&&<div style={{marginTop:4,fontSize:10,color:"#8FA8C8"}}>Cash: {fC(t.cash)}</div>}
               </div>;
             })}
           </div>
@@ -476,6 +533,16 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
+              {acctTotals[acct].cash>0&&!isCollapsed&&<div style={{background:"#FFF",borderRadius:"0 0 6px 6px",borderTop:"1px solid #F0EDE8",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{width:3,height:24,borderRadius:2,background:"#AAA",flexShrink:0}}/>
+                  <div>
+                    <div style={{fontWeight:600,fontSize:13,color:"#555"}}>Cash</div>
+                    <div style={{fontSize:11,color:"#AAA"}}>Settlement balance</div>
+                  </div>
+                </div>
+                <div style={{fontSize:14,fontWeight:600,color:"#555"}}>{fC(acctTotals[acct].cash)}</div>
+              </div>}
             </div>}
           </div>;
         })}
