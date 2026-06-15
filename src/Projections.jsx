@@ -15,24 +15,14 @@ function project(startVal, annualReturn, years, monthlyContrib=0) {
   return val;
 }
 
-function buildGrowthCurve(accounts, annualReturn, currentAge, retirementAge, windfalls) {
+function buildGrowthCurve(accounts, annualReturn, currentAge, retirementAge) {
   const years = retirementAge - currentAge;
   const points = [];
   for (let y = 0; y <= years; y++) {
     const age = currentAge + y;
     let total = 0;
     Object.entries(accounts).forEach(([acct, {val, contrib}]) => {
-      let v = project(val, annualReturn, y, contrib/12);
-      // Apply windfalls
-      windfalls.forEach(w => {
-        if (w.account === acct || w.account === "ALL") {
-          const wYear = w.age - currentAge;
-          if (wYear <= y && w.amount > 0) {
-            v += project(w.amount, annualReturn, y - wYear);
-          }
-        }
-      });
-      total += v;
+      total += project(val, annualReturn, y, contrib/12);
     });
     points.push({ age, value: total });
   }
@@ -92,11 +82,6 @@ export default function Projections({ portfolioData }) {
   const [retirementAge, setRetirementAge] = useState(67);
   const [returnRate, setReturnRate] = useState(7);
   const [contribs, setContribs] = useState({ RRSP: 0, LIRA: 0, TFSA: 400, RESP: 100 });
-  const [windfalls, setWindfalls] = useState([
-    { id: 1, label: "Settlement", amount: 50000, age: 43, account: "TFSA" },
-    { id: 2, label: "Inheritance", amount: 25000, age: 44, account: "RRSP" },
-  ]);
-  const [nextId, setNextId] = useState(3);
 
   // Fallback to approximate values if live data not loaded yet
   const FALLBACK = { RRSP: 124047, LIRA: 197438, TFSA: 20006, RESP: 3277 };
@@ -118,13 +103,7 @@ export default function Projections({ portfolioData }) {
   const years = retirementAge - currentAge;
 
   const projectAccount = (acct, rate) => {
-    let val = project(accounts[acct] || 0, rate, years, contribs[acct]/12);
-    windfalls.forEach(w => {
-      if ((w.account === acct || w.account === "ALL") && w.age > currentAge && w.age < retirementAge) {
-        val += project(w.amount, rate, retirementAge - w.age);
-      }
-    });
-    return val;
+    return project(accounts[acct] || 0, rate, years, contribs[acct]/12);
   };
 
   const baseResults = { RRSP: projectAccount("RRSP", returnRate), LIRA: projectAccount("LIRA", returnRate), TFSA: projectAccount("TFSA", returnRate), RESP: projectAccount("RESP", returnRate) };
@@ -156,23 +135,15 @@ export default function Projections({ portfolioData }) {
   const acctDataForCurve = Object.fromEntries(
     ["RRSP","LIRA","TFSA","RESP"].map(a => [a, {val: accounts[a]||0, contrib: contribs[a]}])
   );
-  const baseCurve = buildGrowthCurve(acctDataForCurve, returnRate, currentAge, retirementAge, windfalls);
-  const pessCurve = buildGrowthCurve(acctDataForCurve, 5, currentAge, retirementAge, windfalls);
-  const optCurve = buildGrowthCurve(acctDataForCurve, 9, currentAge, retirementAge, windfalls);
+  const baseCurve = buildGrowthCurve(acctDataForCurve, returnRate, currentAge, retirementAge);
+  const pessCurve = buildGrowthCurve(acctDataForCurve, 5, currentAge, retirementAge);
+  const optCurve = buildGrowthCurve(acctDataForCurve, 9, currentAge, retirementAge);
 
   const curves = [
     { points: optCurve, color: "#1A6B3C", dashed: true, main: false },
     { points: baseCurve, color: "#0B2447", dashed: false, main: true },
     { points: pessCurve, color: "#B33A3A", dashed: true, main: false },
   ];
-
-  const addWindfall = () => {
-    setWindfalls(w => [...w, { id: nextId, label: "Windfall", amount: 50000, age: currentAge + 5, account: "TFSA" }]);
-    setNextId(n => n+1);
-  };
-
-  const removeWindfall = id => setWindfalls(w => w.filter(x => x.id !== id));
-  const updateWindfall = (id, field, value) => setWindfalls(w => w.map(x => x.id===id ? {...x, [field]: field==="amount"||field==="age" ? Number(value) : value} : x));
 
   return (
     <div style={{fontFamily:"'Inter','Helvetica Neue',Arial,sans-serif",background:"#F4F2EE",minHeight:"100vh",padding:"28px"}}>
@@ -227,108 +198,3 @@ export default function Projections({ portfolioData }) {
 
             <div style={{borderTop:"1px solid #EEE",paddingTop:16}}>
               <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                <div style={{fontSize:12,fontWeight:700,color:"#0B2447",letterSpacing:"0.08em"}}>WINDFALLS</div>
-                <button onClick={addWindfall} style={{background:"#0B2447",color:"#FFF",border:"none",borderRadius:3,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+ Add</button>
-              </div>
-              {windfalls.map(w=>(
-                <div key={w.id} style={{background:"#F8F9FA",borderRadius:6,padding:"10px",marginBottom:8,border:"1px solid #EEE"}}>
-                  <div style={{display:"flex",justifyContent:"space-between",marginBottom:6}}>
-                    <input value={w.label} onChange={e=>updateWindfall(w.id,"label",e.target.value)}
-                      style={{border:"none",background:"none",fontSize:11,fontWeight:700,color:"#0B2447",width:"100%",fontFamily:"inherit"}}/>
-                    <button onClick={()=>removeWindfall(w.id)} style={{background:"none",border:"none",color:"#CCC",fontSize:14,cursor:"pointer",padding:0}}>✕</button>
-                  </div>
-                  <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
-                    <div>
-                      <div style={{fontSize:9,color:"#AAA",marginBottom:2}}>AMOUNT</div>
-                      <input type="number" value={w.amount} onChange={e=>updateWindfall(w.id,"amount",e.target.value)}
-                        style={{width:"100%",border:"1px solid #DDD",borderRadius:3,padding:"4px 6px",fontSize:12,fontFamily:"inherit"}}/>
-                    </div>
-                    <div>
-                      <div style={{fontSize:9,color:"#AAA",marginBottom:2}}>AT AGE</div>
-                      <input type="number" value={w.age} onChange={e=>updateWindfall(w.id,"age",e.target.value)} min={currentAge} max={retirementAge}
-                        style={{width:"100%",border:"1px solid #DDD",borderRadius:3,padding:"4px 6px",fontSize:12,fontFamily:"inherit"}}/>
-                    </div>
-                  </div>
-                  <div style={{marginTop:6}}>
-                    <div style={{fontSize:9,color:"#AAA",marginBottom:2}}>INTO ACCOUNT</div>
-                    <select value={w.account} onChange={e=>updateWindfall(w.id,"account",e.target.value)}
-                      style={{width:"100%",border:"1px solid #DDD",borderRadius:3,padding:"4px 6px",fontSize:12,fontFamily:"inherit"}}>
-                      <option value="RRSP">RRSP</option>
-                      <option value="LIRA">LIRA</option>
-                      <option value="TFSA">TFSA</option>
-                      <option value="RESP">RESP</option>
-                      <option value="ALL">All accounts</option>
-                    </select>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* RESULTS */}
-          <div>
-            {/* Milestones */}
-            {milestones.length > 0 && (
-              <div style={{background:"#0B2447",borderRadius:10,padding:"16px 20px",marginBottom:20,display:"flex",gap:12,flexWrap:"wrap",alignItems:"center"}}>
-                <span style={{fontSize:11,color:"#8FA8C8",fontWeight:700,letterSpacing:"0.08em",marginRight:4}}>MILESTONES</span>
-                {milestones.map(m=>(
-                  <div key={m.target} style={{display:"flex",alignItems:"center",gap:8}}>
-                    <span style={{fontSize:12,color:"#C9A84C",fontWeight:700}}>{fC(m.target)}</span>
-                    <span style={{fontSize:12,color:"#FFF"}}>at age <span style={{fontWeight:700,color:"#4ADE80"}}>{m.age}</span></span>
-                    <span style={{color:"rgba(255,255,255,0.2)",marginLeft:4}}>|</span>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Total projection */}
-            <div style={{background:"#FFF",borderRadius:10,border:"1px solid #E2E8F0",padding:"20px",marginBottom:16,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-              <div style={{fontSize:11,color:"#999",fontWeight:700,letterSpacing:"0.08em",marginBottom:12}}>TOTAL REGISTERED ASSETS AT {retirementAge}</div>
-              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:16,marginBottom:20}}>
-                {[["Pessimistic","5%",pessTotal,"#B33A3A"],["Base",returnRate+"%",baseTotal,"#0B2447"],["Optimistic","9%",optTotal,"#1A6B3C"]].map(([label,rate,val,col])=>(
-                  <div key={label} style={{textAlign:"center",padding:"16px",background:"#F8F9FA",borderRadius:8,border:`2px solid ${label==="Base"?col:"#EEE"}`}}>
-                    <div style={{fontSize:10,fontWeight:700,color:"#AAA",letterSpacing:"0.08em",marginBottom:4}}>{label.toUpperCase()} · {rate}</div>
-                    <div style={{fontSize:22,fontWeight:800,color:col}}>{fC(val)}</div>
-                    <div style={{fontSize:11,color:"#999",marginTop:4}}>
-                      {fP((val - Object.values(accounts).reduce((s,v)=>s+v,0)) / Object.values(accounts).reduce((s,v)=>s+v,0) * 100)} growth
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Growth chart */}
-              <GrowthChart curves={curves} currentAge={currentAge} retirementAge={retirementAge}/>
-              <div style={{display:"flex",gap:16,justifyContent:"center",marginTop:8}}>
-                {[["Optimistic 9%","#1A6B3C"],["Base "+returnRate+"%","#0B2447"],["Pessimistic 5%","#B33A3A"]].map(([l,c])=>(
-                  <div key={l} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,color:"#666"}}>
-                    <div style={{width:20,height:2,background:c,borderRadius:1}}/>
-                    {l}
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Per account breakdown */}
-            <div style={{display:"grid",gridTemplateColumns:"repeat(4,1fr)",gap:12}}>
-              {["RRSP","LIRA","TFSA","RESP"].map(acct=>(
-                <div key={acct} style={{background:"#FFF",borderRadius:8,border:"1px solid #E2E8F0",padding:"16px",borderTop:`3px solid ${ACCT_COLOR[acct]}`,boxShadow:"0 1px 4px rgba(0,0,0,0.06)"}}>
-                  <div style={{fontSize:10,fontWeight:800,color:ACCT_COLOR[acct],letterSpacing:"0.1em",marginBottom:8}}>{acct}</div>
-                  <div style={{fontSize:11,color:"#AAA",marginBottom:4}}>Today: <span style={{color:"#333",fontWeight:600}}>{fC(accounts[acct]||0)}</span></div>
-                  <div style={{fontSize:14,fontWeight:700,color:"#0B2447",marginBottom:2}}>{fC(baseResults[acct])}</div>
-                  <div style={{fontSize:11,color:"#999"}}>
-                    <span style={{color:"#B33A3A"}}>{fC(pessResults[acct])}</span> – <span style={{color:"#1A6B3C"}}>{fC(optResults[acct])}</span>
-                  </div>
-                  {contribs[acct]>0&&<div style={{fontSize:10,color:"#AAA",marginTop:4}}>${contribs[acct]}/mo contribution</div>}
-                </div>
-              ))}
-            </div>
-
-            <div style={{marginTop:12,fontSize:11,color:"#BBB",textAlign:"center"}}>
-              Projections assume consistent returns and contributions. Past performance does not guarantee future results.
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
