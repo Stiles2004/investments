@@ -238,6 +238,8 @@ export default function App() {
     else if(sortBy==="dLA"||sortBy==="dLP") v=(a.dP??0)-(b.dP??0);
     else if(sortBy==="total") v=(b.tP??0)-(a.tP??0);
     else if(sortBy==="ann") v=(b.ann??-9999)-(a.ann??-9999);
+    else if(sortBy==="price") v=(b.pC??0)-(a.pC??0);
+    else if(sortBy==="vol") v=(b.q?.vol??0)-(a.q?.vol??0);
     else if(sortBy==="az") v=a.displayTicker.localeCompare(b.displayTicker);
     return sortDir==="asc" ? -v : v;
   };
@@ -259,14 +261,14 @@ export default function App() {
 
   const COLS = [
     {label:"Security",      align:"left",  cls:"",   sort:"az"},
-    {label:"Price",         align:"right", cls:"",   sort:null},
+    {label:"Price",         align:"right", cls:"",   sort:"price"},
     {label:"Today ▲▼", align:"right", cls:"", sort:"dGP"},
     {label:"Market Value",  align:"right", cls:"",   sort:"weight"},
     {label:"Weight",        align:"right", cls:"hm", sort:"weight"},
     {label:"52-Week Range", align:"center",cls:"hm", sort:null},
     {label:"Total Return",  align:"right", cls:"",   sort:"total"},
     {label:"Ann. Return",   align:"right", cls:"hm2",sort:"ann"},
-    {label:"Vol / Avg",     align:"right", cls:"hm2",sort:null},
+    {label:"Vol / Avg",     align:"right", cls:"hm2",sort:"vol"},
   ];
 
   const cacheAgeStr = cacheAge ? (() => {
@@ -413,6 +415,7 @@ export default function App() {
                     <span style={{fontSize:11,color:"#8FA8C8"}}>$</span>
                     <input type="number" value={cashDraft[a]??0} min={0} step={0.01}
                       onChange={e=>setCashDraft(d=>({...d,[a]:parseFloat(e.target.value)||0}))}
+                      onFocus={e=>e.target.select()}
                       style={{width:80,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",
                         borderRadius:3,padding:"4px 6px",fontSize:12,color:"#FFF",fontFamily:"inherit"}}/>
                   </div>
