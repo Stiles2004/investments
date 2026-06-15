@@ -29,8 +29,14 @@ const HOLDINGS = [
 
 const ACCT_COLOR = { RRSP: "#1B4F8A", LIRA: "#0A8A50", TFSA: "#96780A", RESP: "#6B3FA0" };
 const ACCT_ORDER = ["RRSP", "LIRA", "TFSA", "RESP"];
-// Cash balances per account in CAD - update manually when needed
-const CASH_BALANCES = { RRSP: 100.43, LIRA: 0, TFSA: 0, RESP: 0 };
+const CASH_KEY = "pf_cash_v1";
+function loadCash() {
+  try { const r = localStorage.getItem(CASH_KEY); return r ? JSON.parse(r) : { RRSP: 100.43, LIRA: 0, TFSA: 0, RESP: 0 }; } 
+  catch { return { RRSP: 100.43, LIRA: 0, TFSA: 0, RESP: 0 }; }
+}
+function saveCash(data) {
+  try { localStorage.setItem(CASH_KEY, JSON.stringify(data)); } catch {}
+}
 // Use our own Vercel serverless function as proxy — no CORS issues
 async function fetchYahoo(url) {
   try {
@@ -152,6 +158,9 @@ export default function App() {
   const [cacheAge, setCacheAge] = useState(null);
   const [err, setErr] = useState(null);
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [cashBalances, setCashBalances] = useState(loadCash);
+  const [editingCash, setEditingCash] = useState(false);
+  const [cashDraft, setCashDraft] = useState({});
   const [sortBy, setSortBy] = useState("weight");
   const [sortDir, setSortDir] = useState("desc");
   const [collapsed, setCollapsed] = useState({});
@@ -202,7 +211,7 @@ export default function App() {
     return {...h, q, pC, pN, mv, cb, dA, dP, dAusd, tG, tP, hi, lo, rP, days, ann, vR};
   });
 
-  const totalVal = rows.reduce((s,r)=>s+(r.mv??r.cb),0) + Object.values(CASH_BALANCES).reduce((s,v)=>s+v,0);
+  const totalVal = rows.reduce((s,r)=>s+(r.mv??r.cb),0) + Object.values(cashBalances).reduce((s,v)=>s+v,0);
   const loaded = rows.filter(r=>r.mv!==null);
   const totalDay = loaded.reduce((s,r)=>s+(r.dA??0),0);
   const totalDayP = totalVal>0?(totalDay/(totalVal-totalDay))*100:0;
@@ -238,7 +247,7 @@ export default function App() {
 
   const acctTotals = ACCT_ORDER.reduce((acc,a)=>{
     const h=withW.filter(r=>r.account===a);
-    const cash = CASH_BALANCES[a] || 0;
+    const cash = cashBalances[a] || 0;
     acc[a]={
       val:h.reduce((s,r)=>s+(r.mv??r.cb),0) + cash,
       cost:h.reduce((s,r)=>s+r.cb,0) + cash,
@@ -387,9 +396,38 @@ export default function App() {
               </div>;
             })}
           </div>
+
+          {/* CASH EDITOR */}
+          <div style={{marginTop:12,display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+            {!editingCash ? (
+              <button onClick={()=>{setCashDraft({...cashBalances});setEditingCash(true);}} style={{
+                background:"rgba(255,255,255,0.1)",color:"#8FA8C8",border:"1px solid rgba(255,255,255,0.15)",
+                borderRadius:4,padding:"5px 12px",fontSize:11,fontWeight:600,cursor:"pointer"
+              }}>+ Edit Cash Balances</button>
+            ) : (
+              <div style={{display:"flex",alignItems:"center",gap:10,flexWrap:"wrap",background:"rgba(0,0,0,0.2)",padding:"10px 14px",borderRadius:6,width:"100%"}}>
+                <span style={{fontSize:11,color:"#8FA8C8",fontWeight:700,letterSpacing:"0.06em"}}>CASH</span>
+                {["RRSP","LIRA","TFSA","RESP"].map(a=>(
+                  <div key={a} style={{display:"flex",alignItems:"center",gap:5}}>
+                    <span style={{fontSize:11,fontWeight:700,color:ACCT_COLOR[a]}}>{a}</span>
+                    <span style={{fontSize:11,color:"#8FA8C8"}}>$</span>
+                    <input type="number" value={cashDraft[a]??0} min={0} step={0.01}
+                      onChange={e=>setCashDraft(d=>({...d,[a]:parseFloat(e.target.value)||0}))}
+                      style={{width:80,background:"rgba(255,255,255,0.1)",border:"1px solid rgba(255,255,255,0.2)",
+                        borderRadius:3,padding:"4px 6px",fontSize:12,color:"#FFF",fontFamily:"inherit"}}/>
+                  </div>
+                ))}
+                <button onClick={()=>{saveCash(cashDraft);setCashBalances({...cashDraft});setEditingCash(false);}} style={{
+                  background:"#C9A84C",color:"#0B2447",border:"none",borderRadius:3,padding:"5px 12px",fontSize:11,fontWeight:700,cursor:"pointer"
+                }}>Save</button>
+                <button onClick={()=>setEditingCash(false)} style={{
+                  background:"none",color:"#8FA8C8",border:"1px solid rgba(255,255,255,0.15)",borderRadius:3,padding:"5px 12px",fontSize:11,cursor:"pointer"
+                }}>Cancel</button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-
 
       {/* SORT BAR */}
       <div style={{background:"#FFF",borderBottom:"1px solid #E0DDD8",padding:"10px 28px",position:"sticky",top:0,zIndex:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
@@ -533,7 +571,7 @@ export default function App() {
                   </tbody>
                 </table>
               </div>
-              {acctTotals[acct].cash>0&&!isCollapsed&&<div style={{background:"#FFF",borderRadius:"0 0 6px 6px",borderTop:"1px solid #F0EDE8",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
+              {acctTotals[acct]?.cash>0&&!isCollapsed&&<div style={{background:"#FFF",borderRadius:"0 0 6px 6px",borderTop:"1px solid #F0EDE8",padding:"10px 16px",display:"flex",justifyContent:"space-between",alignItems:"center"}}>
                 <div style={{display:"flex",alignItems:"center",gap:10}}>
                   <div style={{width:3,height:24,borderRadius:2,background:"#AAA",flexShrink:0}}/>
                   <div>
@@ -541,7 +579,7 @@ export default function App() {
                     <div style={{fontSize:11,color:"#AAA"}}>Settlement balance</div>
                   </div>
                 </div>
-                <div style={{fontSize:14,fontWeight:600,color:"#555"}}>{fC(acctTotals[acct].cash)}</div>
+                <div style={{fontSize:14,fontWeight:600,color:"#555"}}>{fC(acctTotals[acct]?.cash)}</div>
               </div>}
             </div>}
           </div>;
