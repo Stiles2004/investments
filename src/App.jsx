@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import Projections from "./Projections.jsx";
+import Insights from "./Insights.jsx";
 
 const HOLDINGS = [
   { ticker: "AMAT",      displayTicker: "AMAT",    shares: 30,        avgCostCAD: 53.864,   account: "RRSP", currency: "USD", purchaseDate: "2018-04-15", name: "Applied Materials" },
@@ -251,7 +252,7 @@ export default function App() {
           <span style={{fontSize:16,fontWeight:700,color:"#FFF",letterSpacing:"0.04em"}}>Portfolio</span>
           {fx&&<span style={{fontSize:11,color:"#8FA8C8",marginLeft:4}}>USD/CAD {(1/fx).toFixed(4)}</span>}
           <div style={{display:"flex",gap:2,marginLeft:16}}>
-            {["dashboard","projections"].map(tab=>(
+            {["dashboard","projections","insights"].map(tab=>(
               <button key={tab} onClick={()=>setActiveTab(tab)} style={{
                 background:activeTab===tab?"rgba(201,168,76,0.2)":"none",
                 color:activeTab===tab?"#C9A84C":"#8FA8C8",
@@ -283,6 +284,16 @@ export default function App() {
         <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap'); *{box-sizing:border-box;margin:0;padding:0;} body,*{font-family:'Inter','Helvetica Neue',Arial,sans-serif;}`}</style>
         {NAV}
         <Projections portfolioData={portfolioForProjections}/>
+      </div>
+    );
+  }
+
+  if (activeTab==="insights") {
+    return (
+      <div style={{fontFamily:"'Inter','Helvetica Neue',Arial,sans-serif",minHeight:"100vh"}}>
+        <style>{`@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap'); *{box-sizing:border-box;margin:0;padding:0;} body,*{font-family:'Inter','Helvetica Neue',Arial,sans-serif;}`}</style>
+        {NAV}
+        <Insights rows={withW} totalVal={totalVal} quotes={quotes} fx={fx}/>
       </div>
     );
   }
