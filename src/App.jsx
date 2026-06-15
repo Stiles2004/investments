@@ -129,6 +129,7 @@ export default function App() {
   const [sortDir, setSortDir] = useState("desc");
   const [collapsed, setCollapsed] = useState({});
   const [cashBalances, setCashBalances] = useState(loadCash);
+  const [indices, setIndices] = useState({});
   const [editingCash, setEditingCash] = useState(false);
   const [cashDraft, setCashDraft] = useState({});
 
@@ -146,6 +147,12 @@ export default function App() {
       const fxRate = q["CADUSD=X"]?.price ?? null;
       if (fxRate) { setFx(fxRate); saveCache(CACHE_KEY_FX, fxRate); }
       setQuotes(q); setUpdated(new Date()); setCacheAge(Date.now());
+      // Fetch market indices in background
+      const indexTickers = ["^GSPTSE","^IXIC","^DJI","CL=F"];
+      const idxResults = await Promise.allSettled(indexTickers.map(t => fetchChartData(t)));
+      const idx = {};
+      indexTickers.forEach((t,i) => { if(idxResults[i].status==="fulfilled"&&idxResults[i].value) idx[t]=idxResults[i].value; });
+      setIndices(idx);
     } catch { setErr("Price fetch failed. Showing cached data."); }
     setLoading(false);
   }, []);
@@ -250,7 +257,7 @@ export default function App() {
         <div style={{display:"flex",alignItems:"center",gap:14}}>
           <div style={{width:2,height:24,background:"#C9A84C"}}/>
           <span style={{fontSize:16,fontWeight:700,color:"#FFF",letterSpacing:"0.04em"}}>Portfolio</span>
-          {fx&&<span style={{fontSize:11,color:"#8FA8C8",marginLeft:4}}>USD/CAD {(1/fx).toFixed(4)}</span>}
+          {fx&&<span style={{fontSize:11,color:"#8FA8C8",marginLeft:4}}>CAD/USD {fx.toFixed(4)}</span>}
           <div style={{display:"flex",gap:2,marginLeft:16}}>
             {["dashboard","projections","insights"].map(tab=>(
               <button key={tab} onClick={()=>setActiveTab(tab)} style={{
@@ -347,8 +354,8 @@ export default function App() {
                   <div style={{fontSize:10,fontWeight:800,color:"#8FA8C8",letterSpacing:"0.1em",marginBottom:7}}>{a}</div>
                   <div style={{fontSize:17,fontWeight:800,color:"#FFF",marginBottom:5}}>{fC(t.val)}</div>
                   <div style={{display:"flex",justifyContent:"space-between",fontSize:10}}>
-                    <span style={{color:isUp?"#4ADE80":"#F87171"}}>{isUp?"+":""}{fC(t.day)} today</span>
-                    <span style={{color:g>=0?"#4ADE80":"#F87171"}}>{fP(gp)} all-time</span>
+                    <span style={{color:isUp?"#4ADE80":"#F87171"}}>{isUp?"+":""}{fC(t.day)}</span>
+                    <span style={{color:isUp?"#4ADE80":"#F87171"}}>{isUp?"+":""}{fP(t.cost>0?(t.day/(t.val-t.day))*100:0,false)}</span>
                   </div>
                   {t.cash>0&&<div style={{marginTop:4,fontSize:10,color:"#8FA8C8"}}>Cash: {fC(t.cash)}</div>}
                 </div>
@@ -388,6 +395,37 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {/* MARKET INDICES BAR */}
+      {Object.keys(indices).length>0&&(
+        <div style={{background:"#0D1B35",borderBottom:"1px solid rgba(255,255,255,0.06)",padding:"8px 28px"}}>
+          <div style={{maxWidth:1440,margin:"0 auto",display:"flex",gap:24,alignItems:"center",flexWrap:"wrap"}}>
+            {[
+              {key:"^GSPTSE",label:"TSX",format:v=>v.toFixed(0)},
+              {key:"^IXIC",label:"NASDAQ",format:v=>v.toFixed(0)},
+              {key:"^DJI",label:"DJIA",format:v=>v.toFixed(0)},
+              {key:"CL=F",label:"WTI Crude",format:v=>"$"+v.toFixed(2)},
+            ].map(({key,label,format})=>{
+              const q=indices[key];
+              if(!q) return null;
+              const up=(q.changePct??0)>=0;
+              return (
+                <div key={key} style={{display:"flex",alignItems:"center",gap:8}}>
+                  <span style={{fontSize:11,color:"#8FA8C8",fontWeight:600}}>{label}</span>
+                  <span style={{fontSize:12,fontWeight:700,color:"#FFF"}}>{format(q.price)}</span>
+                  <span style={{fontSize:11,fontWeight:600,color:up?"#4ADE80":"#F87171"}}>
+                    {up?"▲":"▼"} {Math.abs(q.changePct??0).toFixed(2)}%
+                  </span>
+                </div>
+              );
+            })}
+            <div style={{display:"flex",alignItems:"center",gap:8,marginLeft:"auto"}}>
+              <span style={{fontSize:11,color:"#8FA8C8",fontWeight:600}}>CAD/USD</span>
+              <span style={{fontSize:12,fontWeight:700,color:"#FFF"}}>{fx?.toFixed(4)}</span>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* SORT BAR */}
       <div style={{background:"#FFF",borderBottom:"1px solid #E0DDD8",padding:"10px 28px",position:"sticky",top:0,zIndex:20,boxShadow:"0 2px 8px rgba(0,0,0,0.06)"}}>
