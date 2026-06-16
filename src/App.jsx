@@ -78,7 +78,7 @@ async function fetchYahoo(url) {
 }
 
 async function fetchChartData(ticker) {
-  const url = YF_CHART+ticker+"?interval=1d&range=5d";
+  const url = YF_CHART+ticker+"?interval=1d&range=2d";
   const j = await fetchYahoo(url);
   const m = j?.chart?.result?.[0]?.meta;
   const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
@@ -88,11 +88,10 @@ async function fetchChartData(ticker) {
     ? m.regularMarketChangePercent : null;
   let chgAmt = (m?.regularMarketChange != null && m.regularMarketChange !== 0)
     ? m.regularMarketChange : null;
-  // Fallback: calculate from last two valid closes
+  // Fallback: use chartPreviousClose from meta (always yesterday's close)
   if (chgPct === null) {
-    const valid = closes.filter(c=>c!=null);
-    const prev = valid.length>=2 ? valid[valid.length-2] : null;
-    if (curr!=null && prev!=null) {
+    const prev = m?.chartPreviousClose ?? m?.previousClose ?? null;
+    if (curr!=null && prev!=null && prev!==0) {
       chgAmt = curr - prev;
       chgPct = (chgAmt / prev) * 100;
     }
