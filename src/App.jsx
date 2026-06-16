@@ -78,37 +78,30 @@ async function fetchYahoo(url) {
 }
 
 async function fetchChartData(ticker) {
-  // Fetch 5 days to get enough history to find previous trading day
   const url = YF_CHART+ticker+"?interval=1d&range=5d";
   const j = await fetchYahoo(url);
   const m = j?.chart?.result?.[0]?.meta;
   const timestamps = j?.chart?.result?.[0]?.timestamp ?? [];
   const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
   const curr = m?.regularMarketPrice ?? null;
-  if (ticker === "AMAT") {
-    console.log("AMAT RAW:", JSON.stringify({
-      timestamps, closes,
-      chartPreviousClose: m?.chartPreviousClose,
-      regularMarketTime: m?.regularMarketTime,
-      curr
-    }));
-  }
-  // Find yesterday's close: last close before today
-  const todayStart = new Date();
-  todayStart.setHours(0,0,0,0);
-  const todayTs = todayStart.getTime() / 1000;
+
+  // Find most recent non-null close that is NOT from today
+  // Compare by date string to handle timezone differences
+  const todayDate = new Date().toDateString();
   let prev = null;
   for (let i = timestamps.length - 1; i >= 0; i--) {
-    if (timestamps[i] < todayTs && closes[i] != null) {
+    const tsDate = new Date(timestamps[i] * 1000).toDateString();
+    if (tsDate !== todayDate && closes[i] != null) {
       prev = closes[i];
       break;
     }
   }
-  // Final fallback to chartPreviousClose
+  // Last resort fallback
   if (prev === null) prev = m?.chartPreviousClose ?? null;
 
   const chgAmt = (curr!=null && prev!=null && prev!==0) ? curr - prev : null;
   const chgPct = (chgAmt!=null && prev!=null && prev!==0) ? (chgAmt / prev) * 100 : null;
+
   if (m && curr) {
     return {
       price: curr, changePct: chgPct, changeAmt: chgAmt,
