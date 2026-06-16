@@ -85,7 +85,14 @@ async function fetchChartData(ticker) {
   const timestamps = j?.chart?.result?.[0]?.timestamp ?? [];
   const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
   const curr = m?.regularMarketPrice ?? null;
-
+  if (ticker === "AMAT") {
+    console.log("AMAT RAW:", JSON.stringify({
+      timestamps, closes,
+      chartPreviousClose: m?.chartPreviousClose,
+      regularMarketTime: m?.regularMarketTime,
+      curr
+    }));
+  }
   // Find yesterday's close: last close before today
   const todayStart = new Date();
   todayStart.setHours(0,0,0,0);
