@@ -83,6 +83,16 @@ async function fetchChartData(ticker) {
   const m = j?.chart?.result?.[0]?.meta;
   const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
   const curr = m?.regularMarketPrice ?? null;
+  if (ticker === "AMAT") {
+    console.log("AMAT META:", JSON.stringify({
+      regularMarketPrice: m?.regularMarketPrice,
+      regularMarketChange: m?.regularMarketChange,
+      regularMarketChangePercent: m?.regularMarketChangePercent,
+      chartPreviousClose: m?.chartPreviousClose,
+      previousClose: m?.previousClose,
+      closes: closes
+    }));
+  }
   // Use native change fields when available, fall back to calculating from closes
   let chgPct = (m?.regularMarketChangePercent != null && m.regularMarketChangePercent !== 0)
     ? m.regularMarketChangePercent : null;
