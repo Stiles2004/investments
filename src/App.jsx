@@ -81,12 +81,10 @@ async function fetchChartData(ticker) {
   const url = YF_CHART+ticker+"?interval=1d&range=5d";
   const j = await fetchYahoo(url);
   const m = j?.chart?.result?.[0]?.meta;
-  const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
-  const valid = closes.filter(c=>c!=null);
-  const prev = valid.length>=2 ? valid[valid.length-2] : null;
   const curr = m?.regularMarketPrice ?? null;
-  const chgAmt = (curr!=null&&prev!=null) ? curr-prev : null;
-  const chgPct = (chgAmt!=null&&prev) ? (chgAmt/prev)*100 : null;
+  // Use native change fields from meta - most accurate
+  const chgPct = m?.regularMarketChangePercent ?? null;
+  const chgAmt = m?.regularMarketChange ?? null;
   if (m && curr) {
     return {
       price: curr, changePct: chgPct, changeAmt: chgAmt,
