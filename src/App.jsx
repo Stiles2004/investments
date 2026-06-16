@@ -78,34 +78,30 @@ async function fetchYahoo(url) {
 }
 
 async function fetchChartData(ticker) {
-  const url = YF_CHART+ticker+"?interval=1d&range=2d";
+  // Fetch 5 days to get enough history to find previous trading day
+  const url = YF_CHART+ticker+"?interval=1d&range=5d";
   const j = await fetchYahoo(url);
   const m = j?.chart?.result?.[0]?.meta;
+  const timestamps = j?.chart?.result?.[0]?.timestamp ?? [];
   const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
   const curr = m?.regularMarketPrice ?? null;
-  if (ticker === "AMAT") {
-    console.log("AMAT META:", JSON.stringify({
-      regularMarketPrice: m?.regularMarketPrice,
-      regularMarketChange: m?.regularMarketChange,
-      regularMarketChangePercent: m?.regularMarketChangePercent,
-      chartPreviousClose: m?.chartPreviousClose,
-      previousClose: m?.previousClose,
-      closes: closes
-    }));
-  }
-  // Use native change fields when available, fall back to calculating from closes
-  let chgPct = (m?.regularMarketChangePercent != null && m.regularMarketChangePercent !== 0)
-    ? m.regularMarketChangePercent : null;
-  let chgAmt = (m?.regularMarketChange != null && m.regularMarketChange !== 0)
-    ? m.regularMarketChange : null;
-  // Fallback: use chartPreviousClose from meta (always yesterday's close)
-  if (chgPct === null) {
-    const prev = m?.chartPreviousClose ?? m?.previousClose ?? null;
-    if (curr!=null && prev!=null && prev!==0) {
-      chgAmt = curr - prev;
-      chgPct = (chgAmt / prev) * 100;
+
+  // Find yesterday's close: last close before today
+  const todayStart = new Date();
+  todayStart.setHours(0,0,0,0);
+  const todayTs = todayStart.getTime() / 1000;
+  let prev = null;
+  for (let i = timestamps.length - 1; i >= 0; i--) {
+    if (timestamps[i] < todayTs && closes[i] != null) {
+      prev = closes[i];
+      break;
     }
   }
+  // Final fallback to chartPreviousClose
+  if (prev === null) prev = m?.chartPreviousClose ?? null;
+
+  const chgAmt = (curr!=null && prev!=null && prev!==0) ? curr - prev : null;
+  const chgPct = (chgAmt!=null && prev!=null && prev!==0) ? (chgAmt / prev) * 100 : null;
   if (m && curr) {
     return {
       price: curr, changePct: chgPct, changeAmt: chgAmt,
