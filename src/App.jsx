@@ -77,7 +77,34 @@ async function fetchYahoo(url) {
   } catch { return null; }
 }
 
+async function fetchQuoteDirect(ticker) {
+  // Use v7 quote endpoint server-side - returns live regularMarketChangePercent
+  try {
+    const r = await fetch("/api/quote?symbols="+encodeURIComponent(ticker), {signal:AbortSignal.timeout(12000)});
+    if (!r.ok) return null;
+    const j = await r.json();
+    const q = j?.quoteResponse?.result?.[0];
+    if (q && q.regularMarketPrice) {
+      return {
+        price: q.regularMarketPrice,
+        changePct: q.regularMarketChangePercent ?? null,
+        changeAmt: q.regularMarketChange ?? null,
+        hi52: q.fiftyTwoWeekHigh ?? null,
+        lo52: q.fiftyTwoWeekLow ?? null,
+        vol: q.regularMarketVolume ?? null,
+        avgVol: q.averageDailyVolume3Month ?? null,
+      };
+    }
+    return null;
+  } catch { return null; }
+}
+
 async function fetchChartData(ticker) {
+  // Try v7 quote first (live, accurate change%) then fall back to chart endpoint
+  const quoteData = await fetchQuoteDirect(ticker);
+  if (quoteData && quoteData.changePct !== null) return quoteData;
+
+  // Fallback: chart endpoint with timestamp-based prev close calculation
   const url = YF_CHART+ticker+"?interval=1d&range=5d";
   const j = await fetchYahoo(url);
   const m = j?.chart?.result?.[0]?.meta;
@@ -85,23 +112,20 @@ async function fetchChartData(ticker) {
   const closes = j?.chart?.result?.[0]?.indicators?.quote?.[0]?.close ?? [];
   const curr = m?.regularMarketPrice ?? null;
 
-  // Find most recent non-null close that is NOT from today
-  // Compare by date string to handle timezone differences
-  const todayDate = new Date().toDateString();
+  const marketTime = m?.regularMarketTime ? new Date(m.regularMarketTime * 1000) : new Date();
+  const marketDateStr = marketTime.toDateString();
   let prev = null;
   for (let i = timestamps.length - 1; i >= 0; i--) {
-    const tsDate = new Date(timestamps[i] * 1000).toDateString();
-    if (tsDate !== todayDate && closes[i] != null) {
+    const tsDateStr = new Date(timestamps[i] * 1000).toDateString();
+    if (tsDateStr !== marketDateStr && closes[i] != null) {
       prev = closes[i];
       break;
     }
   }
-  // Last resort fallback
   if (prev === null) prev = m?.chartPreviousClose ?? null;
 
   const chgAmt = (curr!=null && prev!=null && prev!==0) ? curr - prev : null;
   const chgPct = (chgAmt!=null && prev!=null && prev!==0) ? (chgAmt / prev) * 100 : null;
-
   if (m && curr) {
     return {
       price: curr, changePct: chgPct, changeAmt: chgAmt,
